@@ -65,12 +65,31 @@ independent copy. Do not delete or rewrite either copy.
 
 ## Backups
 
-Not yet scheduled. Until a timer exists, take a logical dump before any core
-change:
+No backup timer is installed yet. Take a logical dump before any core change and
+copy it off Almaz:
 
 ```sh
-docker exec chicago-labor-archive-db-1 pg_dump -U arkhiv -Fc arkhiv > ~/backups/cla-$(date -u +%Y%m%dT%H%M%SZ).dump
+B=/mnt/spektr/server/data/chicago-labor-archive/backups
+docker exec chicago-labor-archive-db-1 pg_dump -U arkhiv -Fc arkhiv > $B/cla-$(date -u +%Y%m%dT%H%M%SZ).dump
+# on Kvant
+scp almaz:$B/cla-<stamp>.dump ~/.local/state/chicago-labor-archive/backups/
 ```
 
-The originals have an independent copy on Kvant. The database (reviews, indexes)
-does not yet have an off-host copy.
+The originals have an independent copy in the acquisition on Kvant.
+
+## Current deployment (2026-11-06)
+
+| Item | Value |
+| --- | --- |
+| Core | 0.4.5, `archive-core@sha256:757618a645a46c1258d1c25e6fc267ca09e0d6c75eb70f4abbe333854ff7b7bc` (source `805f702`) |
+| Frontend | `chicago-labor-archive-web:1bea3fa0083dbdc530cd0a0cb65381656725167b` |
+| Catalog | 2,848 public documents from 12 titles; 40,809,188,015 bytes of originals, each verified against the manifest hash on Kvant and again by the importer on Almaz |
+| Text | 376 documents have page text (17,965 pages); 2,472 scans (13,756 pages) have none and show "Document search is unavailable" until OCR runs |
+| Recovery receipt | `independent_recovery_sha256` `146f615589f19ed03b9d71a0a499db754e8b7830d973803e2fea3d450b9e4348` |
+| Database dump | `cla-20261106T200540Z.dump`, SHA-256 `2a47a69d…5d69e`, on Almaz and Kvant; restored into a disposable PostgreSQL 17 on Kvant with matching counts for items, public reviews, indexes, page text, snapshots, observations and review history |
+| Edge | `cla.Caddyfile` imported after `arkhiv.Caddyfile`; previous main file at `Caddyfile.before-cla-20261106`. The running Caddy was reloaded from `sites/_main-Caddyfile.reload-20261106` because its single-file bind mount still points at the pre-edit inode; the next container restart reads the same content from the main path |
+
+Rollback of the public site: remove the `import /etc/caddy/sites/cla.Caddyfile`
+line (edit in place so the inode is kept, or reload from a copy as above), then
+`docker compose -p chicago-labor-archive -f compose.yml stop web core`. The
+database, originals and inputs stay in place.
