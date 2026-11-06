@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { useCatalog, catalogRequest, representationPath, representationURL, sourceProvider, type CatalogCollection, type CatalogItem, type CatalogRepresentation, type RepresentationTransport } from '@subcult/archive-viewer/catalog';
+import { useCatalog, catalogRequest, catalogLabelsURL, representationPath, representationURL, sourceProvider, type CatalogCollection, type CatalogItem, type CatalogLabel, type CatalogRepresentation, type RepresentationTransport } from '@subcult/archive-viewer/catalog';
 import type { Brand } from './brand';
 import { CatalogShare } from './CatalogTools';
 import ChicagoHeader from './chicago/Header';
@@ -7,6 +7,7 @@ import { invertedRange, readState, writeState, type ArchiveState } from './urlSt
 const DocumentView = lazy(() => import('./DocumentView'));
 
 const PAGE_SIZE = 24;
+const KIND_NAMES: Record<string, string> = { topic: 'Topics', place: 'Places', organization: 'Organizations', person: 'People', event: 'Events' };
 const number = new Intl.NumberFormat('en-US');
 type Selection = { item: CatalogItem; representation: CatalogRepresentation };
 
@@ -47,6 +48,7 @@ function SelectedItem({ selection, collection, collectionTitle, onClose, focus, 
     <p className="eyebrow">Print · {collectionTitle}</p><h2>{item.title}</h2>
     <CatalogShare url={share} title={item.title} />
     <p>{[item.creator, item.date].filter(Boolean).join(' · ')}</p>{item.description && <p>{item.description}</p>}
+    {item.labels && item.labels.length > 0 && <ul className="document-labels" aria-label="Topics and tags">{item.labels.map(label => <li key={label.id}><span className="visually-hidden">{label.kind}: </span>{label.label}</li>)}</ul>}
     <dl>{representation.extension.print && <><dt>Pages</dt><dd>{representation.extension.print.pages || 'Unknown'}</dd><dt>Edition</dt><dd>{representation.extension.print.variant || 'Unknown'}</dd></>}<dt>File</dt><dd>{representation.file}</dd></dl>
     {!error && !asset && <p role="status">Checking access…</p>}
     {error && <p role="alert">{error} <button onClick={() => { setError(''); setAsset(undefined); setAttempt(value => value + 1); }}>Try again</button></p>}
@@ -63,10 +65,13 @@ export default function Archive({ brand }: { brand: Brand }) {
   const [collectionTitle, setCollectionTitle] = useState(brand.title);
   const [focus, setFocus] = useState(false);
   const [jump, setJump] = useState('');
+  const [labels, setLabels] = useState<CatalogLabel[]>([]);
+  const [opens, setOpens] = useState(0);
   const opener = useRef<HTMLElement | null>(null);
   const catalogHeading = useRef<HTMLHeadingElement>(null);
   const inverted = invertedRange(state);
-  const catalog = useCatalog({ collection, media: 'print', query: state.query, page: state.page, creator: state.creator, dateFrom: inverted ? '' : state.dateFrom, dateTo: inverted ? '' : state.dateTo });
+  const catalog = useCatalog({ collection, media: 'print', query: state.query, page: state.page, creator: state.creator, dateFrom: inverted ? '' : state.dateFrom, dateTo: inverted ? '' : state.dateTo, text: state.text, label: state.label });
+  const textSearch = Boolean(state.text?.trim());
   const pages = catalog.page ? Math.max(1, Math.ceil(catalog.page.total / PAGE_SIZE)) : 1;
 
   const update = useCallback((next: Partial<ArchiveState>, push = false) => {
@@ -95,6 +100,13 @@ export default function Archive({ brand }: { brand: Brand }) {
       .catch(() => undefined);
     return () => controller.abort();
   }, [collection]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void catalogRequest<CatalogLabel[]>(catalogLabelsURL(collection), controller.signal)
+      .then(value => { if (!controller.signal.aborted) setLabels(value); })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [collection]);
   // Open the document named in the URL, including after reload or back/forward.
   useEffect(() => {
     if (!state.item || !state.representation) { setSelection(undefined); setFocus(false); return; }
@@ -107,10 +119,11 @@ export default function Archive({ brand }: { brand: Brand }) {
     return () => controller.abort();
   }, [state.item, state.representation, collection, selection]);
 
-  function open(item: CatalogItem, representation: CatalogRepresentation, button: HTMLElement) {
+  function open(item: CatalogItem, representation: CatalogRepresentation, button: HTMLElement, page?: number) {
     opener.current = button;
+    setOpens(n => n + 1); // remount the reader so a requested page always applies
     setSelection({ item, representation });
-    update({ item: item.id, representation: representation.id, readerPage: undefined }, true);
+    update({ item: item.id, representation: representation.id, readerPage: page }, true);
   }
   function close() {
     setSelection(undefined); setFocus(false);
@@ -136,6 +149,11 @@ export default function Archive({ brand }: { brand: Brand }) {
     const target = Number(jump);
     if (Number.isInteger(target) && target >= 1) goTo(target);
   }
+  const hitButtons = (item: CatalogItem) => (item.text_hits || []).map(hit => {
+    const representation = item.representations.find(rep => rep.id === hit.representation);
+    return representation && <li key={`${hit.representation}:${hit.page}`}><span className="hit-snippet">…{hit.snippet}…</span> <button onClick={event => open(item, representation, event.currentTarget, hit.page || undefined)}>{hit.page ? `Read page ${hit.page}` : 'Read'}<span className="visually-hidden">: {item.title}</span></button></li>;
+  });
+  const grouped = Object.entries(labels.reduce<Record<string, CatalogLabel[]>>((groups, label) => { (groups[label.kind] ||= []).push(label); return groups; }, {}));
   const readButtons = (item: CatalogItem) => item.representations.filter(rep => rep.media === 'print' && rep.collections.includes(collection)).map(rep =>
     <button key={rep.id} onClick={event => open(item, rep, event.currentTarget)}>Read{item.representations.length > 1 ? ` · ${rep.extension.print?.variant || rep.file}` : ''}<span className="visually-hidden">: {item.title}</span></button>);
 
@@ -147,20 +165,22 @@ export default function Archive({ brand }: { brand: Brand }) {
       <h2 id="catalog-heading" ref={catalogHeading} tabIndex={-1} className="visually-hidden">Catalog</h2>
       <div className="catalog-filters">
         <label>Search titles and descriptions<input type="search" value={state.query} maxLength={200} onChange={event => filter({ query: event.target.value })} /></label>
+        <label>Search document text<input type="search" value={state.text || ''} maxLength={200} onChange={event => filter({ text: event.target.value || undefined })} /></label>
+        {labels.length > 0 && <label>Topic or tag<select value={state.label || ''} onChange={event => filter({ label: event.target.value || undefined })}><option value="">Any</option>{grouped.map(([kind, group]) => <optgroup key={kind} label={KIND_NAMES[kind] || kind}>{group.map(label => <option key={label.id} value={label.id}>{label.label} ({number.format(label.items)})</option>)}</optgroup>)}</select></label>}
         <label>Publication<input value={state.creator} maxLength={200} onChange={event => filter({ creator: event.target.value })} /></label>
         <label>Original date from<input type="date" value={state.dateFrom} onChange={event => filter({ dateFrom: event.target.value })} /></label>
         <label>Original date to<input type="date" value={state.dateTo} onChange={event => filter({ dateTo: event.target.value })} /></label></div>
       <p className="catalog-date-note">Date filters match complete original dates. Issues with a partial or unknown date appear only when both date fields are empty.</p>
       {inverted ? <p role="alert">The start date is after the end date. Swap them to see results.</p> : <>
         {catalog.pending && <p role="status">Loading catalog…</p>}{catalog.error && <p role="alert">{catalog.error} <button onClick={catalog.retry}>Try again</button></p>}
-        {catalog.page && <><p role="status">{number.format(catalog.page.total)} {catalog.page.total === 1 ? 'document' : 'documents'} · Search covers titles and descriptions</p>{catalog.page.items.length === 0 && <p>No documents match these filters.</p>}
+        {catalog.page && <><p role="status">{number.format(catalog.page.total)} {catalog.page.total === 1 ? 'document' : 'documents'} · {textSearch ? 'Document text searched where it has been indexed; scans still waiting for text recognition are not included' : 'Search covers titles and descriptions'}</p>{catalog.page.items.length === 0 && <p>No documents match these filters.</p>}
           <div className="catalog-table-wrap"><table><caption>Archive catalog, page {number.format(state.page)} of {number.format(pages)}</caption><thead><tr><th scope="col">Document</th><th scope="col">Original date</th><th scope="col">Publication</th><th scope="col">Actions</th></tr></thead>
-            <tbody>{catalog.page.items.map(item => <tr key={item.id}><th scope="row">{item.title}</th><td data-label="Original date">{item.date || 'Unknown'}</td><td data-label="Publication">{item.creator || 'Unknown'}</td><td data-label="Actions">{readButtons(item)}</td></tr>)}</tbody></table></div>
+            <tbody>{catalog.page.items.map(item => <tr key={item.id}><th scope="row">{item.title}{textSearch && item.text_hits && item.text_hits.length > 0 && <ul className="text-hits" aria-label="Matching pages">{hitButtons(item)}</ul>}</th><td data-label="Original date">{item.date || 'Unknown'}</td><td data-label="Publication">{item.creator || 'Unknown'}</td><td data-label="Actions">{readButtons(item)}</td></tr>)}</tbody></table></div>
           <nav className="catalog-pages" aria-label="Catalog pages"><button disabled={state.page <= 1} onClick={() => goTo(state.page - 1)}>Previous</button><span>Page {number.format(state.page)} of {number.format(pages)}</span><button disabled={state.page >= pages} onClick={() => goTo(state.page + 1)}>Next</button>
             {pages > 2 && <form onSubmit={submitJump}><label>Go to page<input type="number" inputMode="numeric" min={1} max={pages} value={jump} onChange={event => setJump(event.target.value)} /></label><button type="submit">Go</button></form>}</nav></>}
       </>}
     </section>
-    {selection && <SelectedItem key={`${selection.item.id}:${selection.representation.id}`} selection={selection} collection={collection} collectionTitle={collectionTitle} onClose={close} focus={focus} onFocus={() => setFocus(!focus)} readerPage={state.readerPage} onReaderPage={page => update({ readerPage: page })} />}
+    {selection && <SelectedItem key={`${selection.item.id}:${selection.representation.id}:${opens}`} selection={selection} collection={collection} collectionTitle={collectionTitle} onClose={close} focus={focus} onFocus={() => setFocus(!focus)} readerPage={state.readerPage} onReaderPage={page => update({ readerPage: page })} />}
     <section id="archive-about" className="archive-about"><h2>A regional record, in its own words.</h2><p>Periodicals and documents published in Chicago, its suburbs and the Calumet region in northwest Indiana. Original dates and source information stay with each document. Catalog search covers titles and descriptions; text search is available inside a document when its text has been indexed.</p></section>
     <footer><span>{brand.title}</span><span>Source metadata retained · Access reviewed per collection</span><a href="https://subcult.tv/support">Support SUBCULT’s archive software</a></footer>
   </main>;

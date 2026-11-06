@@ -1,0 +1,5 @@
+{
+  "comment": "Editor decisions for label proposals. accept: label id -> {min_score}; reject: label ids. Empty until an editor reviews the proposals.",
+  "accept": {},
+  "reject": []
+}
