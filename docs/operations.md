@@ -54,9 +54,16 @@ independent copy. Do not delete or rewrite either copy.
 
 ## Updating
 
-- Frontend: merge to `main`; CI publishes
-  `git.subcult.tv/subculture-collective/chicago-labor-archive-web:<sha>`. Set
-  `CHICAGO_WEB_IMAGE` in `.env` and run `$c up -d web`.
+- Frontend: merging to `main` deploys automatically. CI builds
+  `chicago-labor-archive-web:<sha>`, publishes it, and sends it to Almaz's
+  fleet-deploy receiver (profile `~/.config/fleet-deploy/chicago-labor-archive.json`,
+  restricted key `chicago-labor-archive-deploy` in `authorized_keys`). The
+  receiver checks the revision is current `main`, the image labels and the
+  unchanged runtime shape. It swaps only `web`, compares the live HTML with the
+  image and rolls back on failure. Receipts and rollback overlays are under
+  `~/.local/state/fleet-deploy/chicago-labor-archive/releases/`. `.env`'s
+  `CHICAGO_WEB_IMAGE` keeps the bootstrap image: set it to the current image
+  before running `$c up -d web` by hand.
 - Core: update `deploy/core-release.json` and `deploy/archive-core.env` in a
   reviewed change, then on Almaz back up the database, run `operator migrate`
   with the new image and `$c up -d core`.
