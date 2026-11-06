@@ -63,25 +63,81 @@ independent copy. Do not delete or rewrite either copy.
 - Rollback: put the previous image in `.env` and `up -d` the service. Migrations
   are additive; a core rollback after a migration needs a compatible checkpoint.
 
-## Backups
+## Text recognition (OCR)
 
-No backup timer is installed yet. Take a logical dump before any core change and
-copy it off Almaz:
+2,472 imported scans had no text layer. `scripts/ocr_scans.py` runs pinned
+OCRmyPDF/Tesseract (`jbarlow83/ocrmypdf-alpine:v16.13.0`, English) on Kvant as
+the user unit `cla-ocr.service`, reading the originals read only and writing
+`<sha256>.ocr.txt` plus a receipt to
+`/mnt/data2/Archives/chicago-labor-archive-derivatives/ocr/`. Pages are
+separated by form feeds. The job resumes: finished receipts are skipped and
+failed ones retried.
+
+To publish finished OCR text:
 
 ```sh
-B=/mnt/spektr/server/data/chicago-labor-archive/backups
-docker exec chicago-labor-archive-db-1 pg_dump -U arkhiv -Fc arkhiv > $B/cla-$(date -u +%Y%m%dT%H%M%SZ).dump
 # on Kvant
-scp almaz:$B/cla-<stamp>.dump ~/.local/state/chicago-labor-archive/backups/
+python3 scripts/build_ocr_attach.py --import <import dir> --ocr <derivatives>/ocr --output <new dir>
+rsync -a <new dir>/ocr/ almaz:/mnt/arkhiv/chicago-labor-archive/media/_derived/ocr/
+rsync -a <new dir>/ almaz:/mnt/spektr/server/data/chicago-labor-archive/inputs/ocr-<batch>/
+# on Almaz
+$c run --rm --entrypoint sh operator /inputs/ocr-<batch>/attach_ocr.sh /inputs/ocr-<batch> /state
 ```
 
-The originals have an independent copy in the acquisition on Kvant.
+Each document gets a new snapshot of its marxists.org source with the OCR text as
+a derived file (tool, recipe and input hash recorded). Core 0.4.6
+`rebind-representation` binds it and re-applies the public review in one
+transaction, then `index-print` maps the text to pages. The original scan stays
+the reading edition. OCR quality on 1900s newsprint is uneven; search may miss
+words the scan shows.
+
+## Topics and tags
+
+`labels/vocabulary.json` is the controlled vocabulary: topics, places,
+organizations, people and events, with aliases. `scripts/label_documents.py`
+(method `lexicon-v1`) proposes labels from indexed page text with page evidence.
+People and organizations that appear in most of one publication's issues
+(mastheads, publisher advertisements) are dropped for that publication and
+reported. Export the page text and propose:
+
+```sh
+docker exec chicago-labor-archive-db-1 psql -U arkhiv -d arkhiv -c "\copy (SELECT t.item_id,i.creator,t.page,t.text FROM print_page_text t JOIN catalog_items i ON i.id=t.item_id WHERE t.representation_id='pdf' ORDER BY 1,3) TO STDOUT WITH CSV" > pages.csv
+python3 scripts/label_documents.py --vocabulary labels/vocabulary.json --pages pages.csv --output proposals.json
+$c run --rm operator import-labels --file /inputs/labels/vocabulary.json
+$c run --rm operator propose-labels --file /inputs/labels/proposals.json --notes "lexicon-v1 …"
+```
+
+Proposals are private. An editor decides in `labels/review.json` (accept a
+label at a minimum score, or reject it) through a reviewed commit, then:
+
+```sh
+python3 scripts/review_labels.py --policy labels/review.json --proposals proposals.json --output decisions.json
+$c run --rm operator review-labels --file /inputs/labels/decisions.json --notes "labels/review.json at <commit>"
+```
+
+Only accepted labels appear on the site: the Topic or tag filter (hidden while
+none are accepted) and the labels on an open document. A later proposal run never
+overwrites an accepted or rejected label.
+
+## Backups and monitoring
+
+`cla-backup.timer` on Kvant (06:40 UTC daily) runs
+`~/.local/state/chicago-labor-archive/backup_database.sh`: dump on Almaz into
+`/mnt/spektr/server/data/chicago-labor-archive/backups`, copy to
+`~/.local/state/chicago-labor-archive/backups`, verify the SHA-256, keep 14 on
+each side, write `last-success.json`. Kvant's `homelab-job-metrics` exports its
+freshness (36-hour limit) to Dozor. Dozor's `blackbox-http` job probes
+`https://cla.subcult.tv/` and `/api/ready`; rule `ChicagoLaborArchiveDown`
+(`alerts/chicago-labor-archive.yml`) fires after five minutes of failure.
+
+The originals have independent copies in the acquisition and OCR derivatives on
+Kvant.
 
 ## Current deployment (2026-11-06)
 
 | Item | Value |
 | --- | --- |
-| Core | 0.4.5, `archive-core@sha256:757618a645a46c1258d1c25e6fc267ca09e0d6c75eb70f4abbe333854ff7b7bc` (source `805f702`) |
+| Core | 0.4.6, `archive-core@sha256:dcd1573ca5aa2d8e506ac86d2ff489f4b74b0bc307521f13c65fb35fcd1b7a01` (migration 0019 applied 2026-11-06; previous 0.4.5 `757618a6…` in `.env.before-core-0.4.6`) |
 | Frontend | `chicago-labor-archive-web:1bea3fa0083dbdc530cd0a0cb65381656725167b` |
 | Catalog | 2,848 public documents from 12 titles; 40,809,188,015 bytes of originals, each verified against the manifest hash on Kvant and again by the importer on Almaz |
 | Text | 376 documents have page text (17,965 pages); 2,472 scans (13,756 pages) have none and show "Document search is unavailable" until OCR runs |

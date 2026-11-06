@@ -12,6 +12,8 @@ verify-pins:
 	python3 scripts/check_viewer_pin.py
 
 verify-scripts:
-	python3 -m py_compile scripts/build_import.py
+	python3 -m py_compile scripts/build_import.py scripts/ocr_scans.py scripts/build_ocr_attach.py scripts/label_documents.py scripts/review_labels.py
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	sh -n scripts/import.sh
+	sh -n scripts/attach_ocr.sh
+	bash -n scripts/backup_database.sh
