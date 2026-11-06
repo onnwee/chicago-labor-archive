@@ -80,7 +80,12 @@ the user unit `cla-ocr.service`, reading the originals read only and writing
 separated by form feeds. The job resumes: finished receipts are skipped and
 failed ones retried.
 
-To publish finished OCR text:
+`cla-ocr-publish.timer` (Kvant, every two hours) runs
+`scripts/ocr_publish_cycle.sh`. It attaches every finished OCR text to the live
+site with the steps below. After `cla-ocr.service` has finished, it exports all
+indexed page text, runs the labeler, imports the proposals and disables itself.
+
+To publish finished OCR text by hand:
 
 ```sh
 # on Kvant

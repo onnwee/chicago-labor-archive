@@ -17,3 +17,4 @@ verify-scripts:
 	sh -n scripts/import.sh
 	sh -n scripts/attach_ocr.sh
 	bash -n scripts/backup_database.sh
+	bash -n scripts/ocr_publish_cycle.sh
