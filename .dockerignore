@@ -1,0 +1,7 @@
+.git
+web/node_modules
+web/dist
+output
+.playwright-cli
+.env
+**/.pnpm-store

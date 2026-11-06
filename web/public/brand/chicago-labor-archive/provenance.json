@@ -1,0 +1,22 @@
+{
+  "source_pack": "/home/onnwee/Work/Subcult/subcult-tv/studio/brands/chicago-labor-archive",
+  "direction": "Facsimile index",
+  "selected_mark": "06-column-reduction",
+  "working_name": "Chicago Labor Archive",
+  "copied_files": {
+    "fonts/Barlow-Condensed-Bold.ttf": "7dde307fa887fc65ff5830cfada77a7decc5dae8d3c816c9d39ba3f1af1c4ed7",
+    "fonts/Public-Sans-Bold.ttf": "0daaf804b064cf37990f38ff9ba89fc8029e879f8e64260e7bfa6ef739569c3a",
+    "fonts/Public-Sans-Regular.ttf": "d8a092f98db3ae7c7f01e73f8f23aaaec97f16c325765042ae5a052f4d8de546",
+    "fonts/barlowcondensed-OFL.txt": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+    "fonts/publicsans-OFL.txt": "157a9e77f7580246e97c769490e2e977ae94399f9d30f4556015c41fe8c28bac",
+    "mark-dark.svg": "dffc1e243d368d99e179c2115c6c14e3aad7007298b3025f1bb57863bbab1f09",
+    "mark.svg": "0c35864d761b763bfa8f0afbd0c39d6d4f97a7c88930dc6640e2988bcf153586"
+  },
+  "derived_files": {
+    "favicon.svg": {
+      "input": "masters/mark.svg",
+      "change": "Add a dark-scheme fill for browser tab visibility; geometry is unchanged.",
+      "sha256": "3168fea1bdeba33c10c2b2bfc88ca1c221657084d478b810ee8e7d16b8eeb81f"
+    }
+  }
+}

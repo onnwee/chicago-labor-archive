@@ -1,0 +1,88 @@
+# Chicago Labor Archive: its own database, pinned core and frontend.
+# Configure through .env beside the deployment (see docs/operations.md).
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arkhiv
+      POSTGRES_DB: arkhiv
+      POSTGRES_PASSWORD_FILE: /run/secrets/database-password
+    volumes:
+      - ./runtime/database-password:/run/secrets/database-password:ro
+      - ./runtime/database:/var/lib/postgresql/data
+    networks: [archive]
+    mem_limit: 768m
+    cpus: 1
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U arkhiv -d arkhiv]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  core:
+    image: ${ARCHIVE_ENGINE_IMAGE:?Select the reviewed immutable core pin}
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database-url
+      ARKHIV_PUBLIC: "1"
+      VHNESS_COLLECTIONS: chicago-labor-archive
+      VHNESS_MEDIA: /media
+      VHNESS_DERIVATIVES: /derivatives
+    volumes:
+      - ./runtime/public-database-url:/run/secrets/database-url:ro
+      - ${MEDIA_ROOT:?Set the owned media directory}:/media:ro
+      - ./runtime/derivatives:/derivatives:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=128m]
+    mem_limit: 1g
+    cpus: 2
+    networks: [archive]
+  web:
+    image: ${CHICAGO_WEB_IMAGE:?Select the verified frontend image}
+    restart: unless-stopped
+    depends_on:
+      core: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=64m]
+    mem_limit: 256m
+    cpus: 1
+    networks:
+      archive: {}
+      projects:
+        aliases: [chicago-labor-archive-web]
+  # Operator jobs (migrate, import, index) with the owner role; never serves.
+  operator:
+    profiles: [operator]
+    image: ${ARCHIVE_ENGINE_IMAGE:?Select the reviewed immutable core pin}
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database-url
+      VHNESS_COLLECTIONS: chicago-labor-archive
+      VHNESS_MEDIA: /media
+      VHNESS_DERIVATIVES: /derivatives
+    volumes:
+      - ./runtime/database-url:/run/secrets/database-url:ro
+      - ${MEDIA_ROOT:?Set the owned media directory}:/media:ro
+      - ./runtime/derivatives:/derivatives
+      - ${IMPORT_ROOT:-./runtime/empty}:/inputs:ro
+      - ./runtime/import-state:/state
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=256m]
+    networks: [archive]
+networks:
+  archive:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${ARCHIVE_SUBNET:?Select an unused reviewed subnet}
+  projects:
+    external: true

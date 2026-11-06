@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-archive-design="facsimile-index">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="theme-color" content="#ffffff"/>
+  <meta name="description" content="Periodicals and documents from Chicago, its suburbs and the Calumet region. Browse the catalog and read original documents."/>
+  <link rel="icon" type="image/svg+xml" href="/brand/chicago-labor-archive/favicon.svg"/>
+  <title>Chicago Labor Archive — A record in print</title>
+  <link rel="canonical" href="https://cla.subcult.tv/"/>
+  <link rel="preload" href="/brand/chicago-labor-archive/fonts/Barlow-Condensed-Bold.ttf" as="font" type="font/ttf" crossorigin/>
+  <link rel="preload" href="/brand/chicago-labor-archive/fonts/Public-Sans-Regular.ttf" as="font" type="font/ttf" crossorigin/>
+  <meta property="og:type" content="website"/>
+  <meta property="og:url" content="https://cla.subcult.tv/"/>
+  <meta property="og:title" content="Chicago Labor Archive"/>
+  <meta property="og:description" content="Periodicals and documents from Chicago, its suburbs and the Calumet region."/>
+  <script>
+    try {
+      const saved = JSON.parse(localStorage.getItem('chicago-labor-archive.appearance.v1') || '{}');
+      const mode = ['light', 'dark'].includes(saved.mode) ? saved.mode : 'system';
+      document.documentElement.dataset.archiveTheme = mode === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : mode;
+    } catch { /* Default to the system preference in the stylesheet. */ }
+  </script>
+</head>
+<body><div id="root"><noscript><h1>Chicago Labor Archive</h1><p>Periodicals and documents from Chicago, its suburbs and the Calumet region in northwest Indiana. The catalog and reader need JavaScript.</p></noscript></div><script type="module" src="/src/main.tsx"></script></body>
+</html>

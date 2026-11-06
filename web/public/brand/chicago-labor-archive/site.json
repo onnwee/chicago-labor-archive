@@ -1,0 +1,19 @@
+{
+  "interface": "catalog",
+  "presentation": "facsimile-index",
+  "title": "Chicago Labor Archive",
+  "subtitle": "Periodicals & documents",
+  "collection": "chicago-labor-archive",
+  "kicker": "THE REGIONAL LABOR PRESS",
+  "headline": "A record in print.",
+  "description": "Read the papers, trace their dates, and return to the original document. A growing catalog of the region’s labor and radical press.",
+  "logo": "/brand/chicago-labor-archive/mark.svg",
+  "colors": {
+    "background": "#ffffff",
+    "surface": "#eeeeec",
+    "ink": "#111111",
+    "muted": "#575757",
+    "accent": "#284fc7",
+    "border": "#929292"
+  }
+}

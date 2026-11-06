@@ -1,0 +1,8 @@
+web/node_modules/
+web/dist/
+__pycache__/
+.playwright-cli/
+output/
+.env
+*.local
+/.pnpm-store/

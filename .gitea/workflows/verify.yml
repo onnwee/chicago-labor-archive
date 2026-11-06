@@ -1,0 +1,62 @@
+name: verify
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Verify with job-local pnpm
+        run: |
+          tool_dir=$(mktemp -d)
+          trap 'rm -rf "$tool_dir"' EXIT
+          npm install --prefix "$tool_dir" pnpm@10.33.0
+          printf '%s\n' '@subcult:registry=https://git.subcult.tv/api/packages/subculture-collective/npm/' > "$tool_dir/npmrc"
+          NPM_CONFIG_USERCONFIG="$tool_dir/npmrc" PATH="$tool_dir/node_modules/.bin:$PATH" make verify
+
+  image:
+    name: Build and publish the frontend image
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      IMAGE: git.subcult.tv/subculture-collective/chicago-labor-archive-web
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the frontend image
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          auth_dir=$(mktemp -d)
+          trap 'rm -rf "$auth_dir"' EXIT
+          printf '%s\n' '@subcult:registry=https://git.subcult.tv/api/packages/subculture-collective/npm/' > "$auth_dir/npmrc"
+          DOCKER_BUILDKIT=1 docker build -f deploy/frontend.Dockerfile --build-arg CORE_UPSTREAM=core:8080 --secret id=npmrc,src="$auth_dir/npmrc" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.source=https://git.subcult.tv/subculture-collective/chicago-labor-archive" \
+            -t "$IMAGE:$GITHUB_SHA" .
+          docker run --rm --network none --entrypoint nginx "$IMAGE:$GITHUB_SHA" -t
+      - name: Publish the verified main image
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        env:
+          REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$REGISTRY_PAT"
+          umask 077
+          auth_dir=$(mktemp -d)
+          trap 'rm -rf "$auth_dir"' EXIT
+          export DOCKER_CONFIG="$auth_dir/docker"
+          printf '%s' "$REGISTRY_PAT" | docker login git.subcult.tv --username subcult-agent --password-stdin
+          docker push "$IMAGE:$GITHUB_SHA"
+          echo "published $(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$GITHUB_SHA")"
