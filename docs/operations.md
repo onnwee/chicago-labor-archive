@@ -80,7 +80,12 @@ the user unit `cla-ocr.service`, reading the originals read only and writing
 separated by form feeds. The job resumes: finished receipts are skipped and
 failed ones retried.
 
-To publish finished OCR text:
+`cla-ocr-publish.timer` (Kvant, every two hours) runs
+`scripts/ocr_publish_cycle.sh`. It attaches every finished OCR text to the live
+site with the steps below. After `cla-ocr.service` has finished, it exports all
+indexed page text, runs the labeler, imports the proposals and disables itself.
+
+To publish finished OCR text by hand:
 
 ```sh
 # on Kvant
@@ -144,8 +149,8 @@ Kvant.
 
 | Item | Value |
 | --- | --- |
-| Core | 0.4.6, `archive-core@sha256:dcd1573ca5aa2d8e506ac86d2ff489f4b74b0bc307521f13c65fb35fcd1b7a01` (migration 0019 applied 2026-11-06; previous 0.4.5 `757618a6…` in `.env.before-core-0.4.6`) |
-| Frontend | `chicago-labor-archive-web:1bea3fa0083dbdc530cd0a0cb65381656725167b` |
+| Core | 0.4.7, `archive-core@sha256:8673066ce786242d276911a3d1d64e897159efb698b6ce2960ae4a5d6b49e20d` (snippet fix; 0.4.6 added migration 0019 on 2026-11-06; previous pins in `.env.before-core-0.4.6` and `.env.before-core-0.4.7`) |
+| Frontend | deployed automatically from `main` (receipts under `~/.local/state/fleet-deploy/chicago-labor-archive/releases/`) |
 | Catalog | 2,848 public documents from 12 titles; 40,809,188,015 bytes of originals, each verified against the manifest hash on Kvant and again by the importer on Almaz |
 | Text | 376 documents have page text (17,965 pages); 2,472 scans (13,756 pages) have none and show "Document search is unavailable" until OCR runs |
 | Recovery receipt | `independent_recovery_sha256` `146f615589f19ed03b9d71a0a499db754e8b7830d973803e2fea3d450b9e4348` |
