@@ -1,0 +1,12 @@
+[Unit]
+Description=Chicago Labor Archive OCR containers (bounded so Kvant stays responsive)
+
+[Slice]
+# Hard ceiling for all OCR containers together; the kernel reclaims above MemoryHigh.
+MemoryHigh=12G
+MemoryMax=14G
+MemorySwapMax=0
+# At most six of Kvant's 24 cores, and lowest priority for CPU and disk.
+CPUQuota=600%
+CPUWeight=10
+IOWeight=10

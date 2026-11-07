@@ -72,7 +72,15 @@ independent copy. Do not delete or rewrite either copy.
 
 ## Text recognition (OCR)
 
-2,472 imported scans had no text layer. `scripts/ocr_scans.py` runs pinned
+2,472 imported scans had no text layer. OCR containers run inside the system
+slice `cla-ocr.slice` (`deploy/kvant/cla-ocr.slice`, installed in
+`/etc/systemd/system`): 12 GB memory high, 14 GB max, no swap, 600% CPU quota
+and the lowest CPU and disk weight. The driver refuses to start without it. On
+November 6, 2026 the first run used sixteen unbounded 3 GB containers; together
+with Kvant's own load they exhausted its 60 GB and forced a reboot. With the
+slice, each container is capped at 2 GB (a broadsheet issue peaks around
+400 MB) and six run at once. `cla-ocr.service` is a transient unit: after a
+reboot, start it again with the `systemd-run` command below and it resumes. `scripts/ocr_scans.py` runs pinned
 OCRmyPDF/Tesseract (`jbarlow83/ocrmypdf-alpine:v16.13.0`, English) on Kvant as
 the user unit `cla-ocr.service`, reading the originals read only and writing
 `<sha256>.ocr.txt` plus a receipt to
@@ -84,6 +92,21 @@ failed ones retried.
 `scripts/ocr_publish_cycle.sh`. It attaches every finished OCR text to the live
 site with the steps below. After `cla-ocr.service` has finished, it exports all
 indexed page text, runs the labeler, imports the proposals and disables itself.
+
+Start or resume OCR on Kvant:
+
+```sh
+D=/mnt/data2/Archives/chicago-labor-archive-derivatives
+cp scripts/ocr_scans.py $D/ocr_scans.py
+systemd-run --user --unit=cla-ocr --working-directory=$D \
+  -p StandardOutput=append:$D/ocr.log -p StandardError=append:$D/ocr.log \
+  python3 $D/ocr_scans.py --import $D/inputs/import --list $D/inputs/no-text.tsv \
+  --mia /mnt/data2/Archives/Marxists-Internet-Archive --output $D/ocr --parallel 6
+```
+
+Stop it with `systemctl --user stop cla-ocr` followed by
+`docker rm -f $(docker ps -q --filter name=cla-ocr-)`, because stopping the unit
+leaves running containers behind.
 
 To publish finished OCR text by hand:
 
