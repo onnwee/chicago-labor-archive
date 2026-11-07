@@ -7,7 +7,12 @@ receipt `<sha256>.json` beside it. Originals are mounted read only and never
 modified. Existing results whose receipt matches the input hash are skipped, so
 the job can be stopped and resumed.
 
-    ocr_scans.py --import DIR --list no-text.tsv --mia ROOT --output DIR [--parallel 16]
+    ocr_scans.py --import DIR --list no-text.tsv --mia ROOT --output DIR [--parallel 6]
+
+Containers run inside the systemd slice `cla-ocr.slice` (see docs/operations.md),
+which caps all OCR together at 14 GB of memory and six cores with the lowest CPU
+and disk priority. On November 6, 2026 sixteen unbounded workers exhausted
+Kvant's memory and forced a reboot; do not raise the limits without that slice.
 
 `--list` holds `<item id>\t<page count>` lines from the deployed print index.
 """
@@ -22,6 +27,8 @@ import time
 from pathlib import Path
 
 IMAGE = "jbarlow83/ocrmypdf-alpine:v16.13.0"
+SLICE = "cla-ocr.slice"
+CONTAINER_MEMORY = "2g"
 LANGUAGE = "eng"
 RECIPE = f"ocrmypdf -l {LANGUAGE} --jobs 1 --skip-text --output-type none --sidecar"
 
@@ -45,10 +52,14 @@ def run(entry: dict, mia: Path, output: Path, pages: int) -> tuple[str, str]:
     if source.stat().st_size != entry["bytes"] or sha256(source) != digest:
         return entry["item"], "input hash mismatch"
     partial = output / f".{digest}.ocr.txt.partial"
+    name = f"cla-ocr-{digest[:16]}"
+    # A container left by an interrupted run would write the same partial file.
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    partial.unlink(missing_ok=True)
     started = time.time()
     proc = subprocess.run(
-        ["docker", "run", "--rm", "--network", "none", "-u", f"{os.getuid()}:{os.getgid()}",
-         "--memory", "3g", "--cpus", "1",
+        ["docker", "run", "--rm", "--name", name, "--cgroup-parent", SLICE, "--network", "none", "-u", f"{os.getuid()}:{os.getgid()}",
+         "--memory", CONTAINER_MEMORY, "--memory-swap", CONTAINER_MEMORY, "--cpus", "1",
          "-v", f"{source.parent}:/in:ro", "-v", f"{output}:/out", IMAGE,
          "-l", LANGUAGE, "--jobs", "1", "--skip-text", "--output-type", "none",
          "--sidecar", f"/out/{partial.name}", f"/in/{source.name}", "-"],
@@ -76,8 +87,10 @@ def main() -> int:
     parser.add_argument("--list", required=True, type=Path)
     parser.add_argument("--mia", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--parallel", type=int, default=16)
+    parser.add_argument("--parallel", type=int, default=6)
     args = parser.parse_args()
+    if subprocess.run(["systemctl", "show", SLICE, "-p", "MemoryMax", "--value"], capture_output=True, text=True).stdout.strip() in ("", "infinity"):
+        sys.exit(f"{SLICE} has no memory limit; install it before running OCR")
     recovery = json.loads((args.inputs / "recovery.json").read_text())
     by_item = {e["item"]: e for e in recovery["files"]}
     work = []
