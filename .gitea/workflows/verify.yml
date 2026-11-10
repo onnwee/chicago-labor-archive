@@ -31,7 +31,8 @@ jobs:
   image:
     name: Build and publish the frontend image
     needs: verify
-    runs-on: ubuntu-latest
+    # Homelab deploy keys accept only Kvant's address (Kvant and its Kuznya VM); the kvant label keeps this job off Buran.
+    runs-on: [ubuntu-latest, kvant]
     timeout-minutes: 25
     env:
       IMAGE: git.subcult.tv/subculture-collective/chicago-labor-archive-web
