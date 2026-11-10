@@ -1,7 +1,7 @@
 name: PR CI
 
-# Pull-request checks on GitHub-hosted runners. Main-branch builds and deploys
-# stay in .gitea/workflows on Gitea Actions.
+# Pull-request checks on GitHub-hosted runners. deploy.yml deploys main;
+# .gitea/workflows keeps main verification on Gitea Actions as a backup.
 on:
   pull_request:
   workflow_dispatch:
