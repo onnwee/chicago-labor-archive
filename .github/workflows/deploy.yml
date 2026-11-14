@@ -6,12 +6,13 @@ run-name: Deploy ${{ github.sha }}
 # key, which Almaz accepts only from tailnet addresses and only for the
 # chicago-labor-archive fleet-deploy receiver.
 #
-# When a push to main changes deploy/archive-core.env or deploy/core.Dockerfile
-# (or a manual run asks for it), the core job first deploys the pinned core
-# through the separate chicago-labor-archive-core receiver profile and its own
-# key. It stays off until the repository variable CORE_DEPLOY_ENABLED is 'true',
-# which the operator sets after registering that profile (docs/operations.md).
-# Other commits deploy only the web image.
+# When the pinned core version (deploy/core-release.json) differs from the
+# core_version that cla.subcult.tv reports, when a push changes
+# deploy/core.Dockerfile, or when a manual run asks for it, the core job first
+# deploys the pinned core through the separate chicago-labor-archive-core
+# receiver profile and its own key. It stays off until the repository variable
+# CORE_DEPLOY_ENABLED is 'true', which the operator sets after registering that
+# profile (docs/operations.md). Other runs deploy only the web image.
 'on':
   push:
     branches: [main]
@@ -39,7 +40,7 @@ env:
 
 jobs:
   changes:
-    name: Decide whether the core pin changed
+    name: Decide whether to deploy the core
     if: github.repository == 'subculture-collective/chicago-labor-archive' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -59,18 +60,40 @@ jobs:
         run: |
           set -euo pipefail
           core=false
+          # Compare the pin with the running core rather than the pushed
+          # commits: when a newer commit reaches main before a core run
+          # deploys, the receiver refuses the older run, and the newer run
+          # must still deploy the core.
+          pinned=$(python3 -c 'import json; print(json.load(open("deploy/core-release.json"))["version"])')
+          if curl --fail --silent --show-error --retry 4 --retry-all-errors --max-time 30 \
+            "https://cla.subcult.tv/api/version?deploy-check=$DEPLOY_REVISION" > "$RUNNER_TEMP/version.json"; then
+            # Cores before 0.4.11 do not report core_version: treat that as a difference.
+            live=$(python3 -c '
+          import json, sys
+          try:
+              print(json.load(open(sys.argv[1])).get("core_version") or "")
+          except (ValueError, AttributeError):
+              print("")
+          ' "$RUNNER_TEMP/version.json")
+            echo "Pinned core $pinned; cla.subcult.tv reports ${live:-no core_version}"
+            if [ "$live" != "$pinned" ]; then core=true; fi
+          else
+            # The next push or a manual run with deploy_core catches up.
+            echo "::warning title=Live core version unknown::Could not read https://cla.subcult.tv/api/version, so the core is not deployed. Rerun, or run the workflow on main with deploy_core."
+          fi
           if [ "$EVENT" = workflow_dispatch ]; then
             if [ "$DISPATCH_CORE" = true ]; then core=true; fi
           else
-            # Compare the whole pushed range; fall back to the parent when the
-            # previous head is unknown (new branch or rewritten history).
+            # A wrapper change needs a new core image even when the version
+            # matches. Compare the whole pushed range; fall back to the parent
+            # when the previous head is unknown (new branch or rewritten history).
             base=$(git rev-parse "$DEPLOY_REVISION^")
             if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
               && git merge-base --is-ancestor "$BEFORE" "$DEPLOY_REVISION"; then base=$BEFORE; fi
-            if ! git diff --quiet "$base" "$DEPLOY_REVISION" -- deploy/archive-core.env deploy/core.Dockerfile; then core=true; fi
+            if ! git diff --quiet "$base" "$DEPLOY_REVISION" -- deploy/core.Dockerfile; then core=true; fi
           fi
           if [ "$core" = true ] && [ "$ENABLED" != true ]; then
-            echo "::warning title=Core not deployed::The core pin changed, but CORE_DEPLOY_ENABLED is not 'true'. Deploy the core by hand (docs/operations.md)."
+            echo "::warning title=Core not deployed::The pinned core differs from the live one, but CORE_DEPLOY_ENABLED is not 'true'. Deploy the core by hand (docs/operations.md)."
             core=false
           fi
           echo "core=$core" >> "$GITHUB_OUTPUT"
@@ -234,7 +257,34 @@ jobs:
           mkdir -p "$RUNNER_TEMP/deploy"
           printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/deploy/key"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/deploy/known_hosts"
+      - name: Ask the receiver for an image it already holds
+        id: artifact
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/deploy"
+          ssh_args=(-F /dev/null -i "$d/key" -o ControlPath=none -o ControlMaster=no -o BatchMode=yes -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=15 "$TARGET")
+          ssh "${ssh_args[@]}" status
+          # The receiver accepts only Gitea's current main. Kvant copies GitHub
+          # to Gitea every minute, so wait while the revision has not arrived.
+          for attempt in $(seq 1 20); do
+            # shellcheck disable=SC2029
+            if ssh "${ssh_args[@]}" "artifact $DEPLOY_REVISION web" > "$d/artifact.json" 2> "$d/err"; then break; fi
+            if grep -q "no longer the current main" "$d/err" && [ "$attempt" -lt 20 ]; then
+              echo "Gitea has not received $DEPLOY_REVISION yet; waiting 30 s ($attempt/20)"; sleep 30; continue
+            fi
+            cat "$d/err" >&2; exit 1
+          done
+          # Builds are not reproducible and the receiver refuses a different
+          # image for a commit it already holds, so a rerun reuses the first one.
+          if [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["available"])' "$d/artifact.json")" = True ]; then
+            echo "The receiver already holds the web image for $DEPLOY_REVISION; reusing it"
+            echo "reuse=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reuse=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Build deployable images from the verified revision
+        if: steps.artifact.outputs.reuse != 'true'
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$DEPLOY_REVISION"
@@ -249,6 +299,7 @@ jobs:
           docker run --rm --network none --entrypoint nginx "$IMAGE:$GITHUB_SHA" -t
           docker tag "$IMAGE:$GITHUB_SHA" "fleet-deploy/chicago-labor-archive/web:$GITHUB_SHA"
       - name: Publish the images to GitHub Packages
+        if: steps.artifact.outputs.reuse != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -256,25 +307,20 @@ jobs:
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           docker push "$IMAGE:$GITHUB_SHA"
           echo "published $(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$GITHUB_SHA")"
-      - name: Deploy the built image and verify the live site
+      - name: Deploy the image and verify the live site
+        env:
+          REUSE: ${{ steps.artifact.outputs.reuse }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$DEPLOY_REVISION"
           d="$RUNNER_TEMP/deploy"
           ssh_args=(-F /dev/null -i "$d/key" -o ControlPath=none -o ControlMaster=no -o BatchMode=yes -o IdentitiesOnly=yes
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=15 "$TARGET")
-          ssh "${ssh_args[@]}" status
-          image="fleet-deploy/chicago-labor-archive/web:$DEPLOY_REVISION"
-          # The receiver deploys only Gitea's current main. Kvant copies GitHub
-          # to Gitea every minute, so wait while the revision has not arrived.
-          for attempt in $(seq 1 20); do
+          if [ "$REUSE" != true ]; then
             # shellcheck disable=SC2029
-            if docker save "$image" | ssh "${ssh_args[@]}" "receive $DEPLOY_REVISION web" 2> "$d/err"; then break; fi
-            if grep -q "no longer the current main" "$d/err" && [ "$attempt" -lt 20 ]; then
-              echo "Gitea has not received $DEPLOY_REVISION yet; waiting 30 s ($attempt/20)"; sleep 30; continue
-            fi
-            cat "$d/err" >&2; exit 1
-          done
+            docker save "fleet-deploy/chicago-labor-archive/web:$DEPLOY_REVISION" \
+              | ssh "${ssh_args[@]}" "receive $DEPLOY_REVISION web"
+          fi
           # shellcheck disable=SC2029
           ssh "${ssh_args[@]}" "deploy $DEPLOY_REVISION"
           # shellcheck disable=SC2029

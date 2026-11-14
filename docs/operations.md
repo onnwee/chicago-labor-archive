@@ -60,8 +60,11 @@ independent copy. Do not delete or rewrite either copy.
   restricted key `chicago-labor-archive-deploy` in `authorized_keys`). The
   receiver checks the revision is current `main`, the image labels and the
   unchanged runtime shape. It swaps only `web`, compares the live HTML with the
-  image and rolls back on failure. Receipts and rollback overlays are under
-  `~/.local/state/fleet-deploy/chicago-labor-archive/releases/`. `.env`'s
+  image and rolls back on failure. CI first asks for `artifact REVISION web`.
+  If the receiver already holds an image for that commit (a rerun), CI skips
+  the build, publish and `receive` steps and deploys that image: builds are not
+  reproducible, and the receiver refuses a second image for the same commit.
+  Receipts and rollback overlays are under `~/.local/state/fleet-deploy/chicago-labor-archive/releases/`. `.env`'s
   `CHICAGO_WEB_IMAGE` keeps the bootstrap image: set it to the current image
   before running `$c up -d web` by hand.
 - Core: upgrade `deploy/core-release.json` and `deploy/archive-core.env` in a
@@ -73,9 +76,12 @@ independent copy. Do not delete or rewrite either copy.
 
 ### Automatic core deploys
 
-When a push to `main` changes `deploy/archive-core.env` or
-`deploy/core.Dockerfile`, the `core` job in `.github/workflows/deploy.yml` runs
-before the web job. A manual run with `deploy_core` does the same. The job:
+The `changes` job compares the `version` in `deploy/core-release.json` with the
+`core_version` that `https://cla.subcult.tv/api/version` reports. A response
+without `core_version` (cores before 0.4.11) counts as a difference. When they
+differ, when a push changes `deploy/core.Dockerfile`, or when a manual run sets
+`deploy_core`, the `core` job in `.github/workflows/deploy.yml` runs before the
+web job. The job:
 
 1. pulls the pinned digest from `git.subcult.tv` (anonymous) and refuses an
    image whose digest differs from the pin, or whose version and revision labels
@@ -94,10 +100,12 @@ before the web job. A manual run with `deploy_core` does the same. The job:
    otherwise checks that `https://cla.subcult.tv/api/version` reports the pinned
    `core_version`.
 
-The web job then deploys as before. Commits that do not touch those two files
-skip the core job and deploy only the web image. If a core run fails because a
-newer commit reached `main` first, the newer run does not see a pin change; run
-the workflow by hand on `main` with `deploy_core`.
+The web job then deploys as before. Runs that find the live core at the pinned
+version skip the core job and deploy only the web image. If the live version
+cannot be read, the run warns and also deploys only the web image. Because the
+decision compares against the live core rather than the pushed commits, when the
+receiver refuses a core run because a newer commit reached `main` first, that
+newer run deploys the core.
 
 The core uses its own receiver profile and key, because `deploy REVISION`
 replaces every service in a profile and requires an image of each one for that
