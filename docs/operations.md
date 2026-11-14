@@ -79,8 +79,8 @@ independent copy. Do not delete or rewrite either copy.
 The `changes` job compares the `version` in `deploy/core-release.json` with the
 `core_version` that `https://cla.subcult.tv/api/version` reports. A response
 without `core_version` (cores before 0.4.11) counts as a difference. When they
-differ, when a push changes `deploy/core.Dockerfile`, or when a manual run sets
-`deploy_core`, the `core` job in `.github/workflows/deploy.yml` runs before the
+differ, when `deploy/core.Dockerfile` changed since the last successful core
+deploy, or when a manual run sets `deploy_core`, the `core` job in `.github/workflows/deploy.yml` runs before the
 web job. The job:
 
 1. pulls the pinned digest from `git.subcult.tv` (anonymous) and refuses an
@@ -98,7 +98,13 @@ web job. The job:
    image if they fail;
 4. fails with an annotation when the receiver refuses or rolls back, and
    otherwise checks that `https://cla.subcult.tv/api/version` reports the pinned
-   `core_version`.
+   `core_version`;
+5. records the deployed commit as a GitHub deployment with task `deploy:core`
+   in the `production` environment. The next runs compare
+   `deploy/core.Dockerfile` with that commit. A core run that was refused,
+   cancelled or skipped while `CORE_DEPLOY_ENABLED` was off records nothing,
+   so its wrapper change carries forward. Before the first record exists,
+   the core deploys once to create it.
 
 The web job then deploys as before. Runs that find the live core at the pinned
 version skip the core job and deploy only the web image. If the live version

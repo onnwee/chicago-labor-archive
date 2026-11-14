@@ -7,9 +7,9 @@ run-name: Deploy ${{ github.sha }}
 # chicago-labor-archive fleet-deploy receiver.
 #
 # When the pinned core version (deploy/core-release.json) differs from the
-# core_version that cla.subcult.tv reports, when a push changes
-# deploy/core.Dockerfile, or when a manual run asks for it, the core job first
-# deploys the pinned core through the separate chicago-labor-archive-core
+# core_version that cla.subcult.tv reports, when deploy/core.Dockerfile
+# changed since the last successful core deploy, or when a manual run asks for
+# it, the core job first deploys the pinned core through the separate chicago-labor-archive-core
 # receiver profile and its own key. It stays off until the repository variable
 # CORE_DEPLOY_ENABLED is 'true', which the operator sets after registering that
 # profile (docs/operations.md). Other runs deploy only the web image.
@@ -44,6 +44,10 @@ jobs:
     if: github.repository == 'subculture-collective/chicago-labor-archive' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      # Reads the deploy:core record of the last successful core deploy.
+      deployments: read
     outputs:
       core: ${{ steps.core.outputs.core }}
     steps:
@@ -57,6 +61,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           DISPATCH_CORE: ${{ inputs.deploy_core }}
           ENABLED: ${{ vars.CORE_DEPLOY_ENABLED }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           core=false
@@ -81,16 +86,31 @@ jobs:
             # The next push or a manual run with deploy_core catches up.
             echo "::warning title=Live core version unknown::Could not read https://cla.subcult.tv/api/version, so the core is not deployed. Rerun, or run the workflow on main with deploy_core."
           fi
-          if [ "$EVENT" = workflow_dispatch ]; then
-            if [ "$DISPATCH_CORE" = true ]; then core=true; fi
+          if [ "$EVENT" = workflow_dispatch ] && [ "$DISPATCH_CORE" = true ]; then core=true; fi
+          # A wrapper change needs a new core image even when the version
+          # matches. Compare with the commit of the last successful core
+          # deploy, which the core job records as a deploy:core deployment. A
+          # core run that was refused, cancelled or skipped records nothing, so
+          # its wrapper change carries forward. With no record yet, deploy the
+          # core once to create one. If the record cannot be read, or is not an
+          # ancestor, compare the pushed range, or the parent when that is unknown.
+          base=$(git rev-parse "$DEPLOY_REVISION^")
+          if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+            && git merge-base --is-ancestor "$BEFORE" "$DEPLOY_REVISION"; then base=$BEFORE; fi
+          if last=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=production&task=deploy:core&per_page=1" \
+            --jq '.[0].sha // ""'); then
+            if [ -z "$last" ]; then
+              echo "No recorded core deploy yet; deploying the core to record one"; core=true
+            elif git cat-file -e "$last^{commit}" 2>/dev/null && git merge-base --is-ancestor "$last" "$DEPLOY_REVISION"; then
+              base=$last
+            else
+              echo "::warning title=Last core deploy not an ancestor::Comparing deploy/core.Dockerfile with $base only."
+            fi
           else
-            # A wrapper change needs a new core image even when the version
-            # matches. Compare the whole pushed range; fall back to the parent
-            # when the previous head is unknown (new branch or rewritten history).
-            base=$(git rev-parse "$DEPLOY_REVISION^")
-            if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
-              && git merge-base --is-ancestor "$BEFORE" "$DEPLOY_REVISION"; then base=$BEFORE; fi
-            if ! git diff --quiet "$base" "$DEPLOY_REVISION" -- deploy/core.Dockerfile; then core=true; fi
+            echo "::warning title=Last core deploy unknown::Comparing deploy/core.Dockerfile with $base only."
+          fi
+          if ! git diff --quiet "$base" "$DEPLOY_REVISION" -- deploy/core.Dockerfile; then
+            echo "deploy/core.Dockerfile changed since $base"; core=true
           fi
           if [ "$core" = true ] && [ "$ENABLED" != true ]; then
             echo "::warning title=Core not deployed::The pinned core differs from the live one, but CORE_DEPLOY_ENABLED is not 'true'. Deploy the core by hand (docs/operations.md)."
@@ -108,6 +128,8 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
+      # Records each successful core deploy for the changes job.
+      deployments: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -217,6 +239,16 @@ jobs:
             echo "::error title=Live core version differs::cla.subcult.tv reports $live, pinned $CORE_VERSION"; exit 1
           fi
           printf 'cla.subcult.tv runs core %s from %s\n' "$live" "$DEPLOY_REVISION"
+      - name: Record the core deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The changes job compares deploy/core.Dockerfile with this commit.
+          id=$(printf '{"ref":"%s","task":"deploy:core","environment":"production","auto_merge":false,"required_contexts":[],"description":"core %s"}' \
+            "$DEPLOY_REVISION" "$CORE_VERSION" | gh api -X POST "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" -f state=success --silent
+          echo "Recorded deploy:core deployment $id for $DEPLOY_REVISION"
       - name: Remove the core deploy key
         if: always()
         run: rm -rf "$RUNNER_TEMP/core-deploy"
