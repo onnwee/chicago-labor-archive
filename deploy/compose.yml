@@ -67,6 +67,8 @@ services:
       VHNESS_COLLECTIONS: chicago-labor-archive
       VHNESS_MEDIA: /media
       VHNESS_DERIVATIVES: /derivatives
+      # migrate grants this read-only serving role SELECT on new tables (core 0.4.11+).
+      ARKHIV_READER_ROLE: cla_public
     volumes:
       - ./runtime/database-url:/run/secrets/database-url:ro
       - ${MEDIA_ROOT:?Set the owned media directory}:/media:ro

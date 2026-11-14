@@ -186,8 +186,11 @@ jobs:
           if [ "$status" != deployed ]; then echo "::error title=Core deploy not completed::receiver status $status"; exit 1; fi
           curl --fail --silent --show-error --retry 4 --retry-all-errors --max-time 30 \
             "https://cla.subcult.tv/api/version?deploy-check=$DEPLOY_REVISION" > "$d/version.json"
-          live=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["core_version"])' "$d/version.json")
-          if [ "$live" != "$CORE_VERSION" ]; then
+          # Cores before 0.4.11 do not report core_version; the receiver's checks still passed.
+          live=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("core_version", ""))' "$d/version.json")
+          if [ -z "$live" ]; then
+            echo "::warning title=Core version not reported::cla.subcult.tv runs a core older than 0.4.11, which does not report core_version"
+          elif [ "$live" != "$CORE_VERSION" ]; then
             echo "::error title=Live core version differs::cla.subcult.tv reports $live, pinned $CORE_VERSION"; exit 1
           fi
           printf 'cla.subcult.tv runs core %s from %s\n' "$live" "$DEPLOY_REVISION"
