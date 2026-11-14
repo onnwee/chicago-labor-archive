@@ -12,7 +12,7 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "@subcult/archive-viewer": "0.4.7",
+    "@subcult/archive-viewer": "0.4.9",
     "pdfjs-dist": "5.4.624",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

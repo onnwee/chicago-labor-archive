@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@subcult/archive-viewer':
-        specifier: 0.4.7
-        version: 0.4.7(react@19.3.1)
+        specifier: 0.4.9
+        version: 0.4.9(react@19.3.1)
       pdfjs-dist:
         specifier: 5.4.624
         version: 5.4.624
@@ -591,8 +591,8 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@subcult/archive-viewer@0.4.7':
-    resolution: {integrity: sha512-OUwAckNYfUBlROHY6lsUb49uMvr/AUI2j/A17e2F2jdZUtBjoG9MMu9c4F/31hXjqcuX0+Au0E23qhLJ0KHpQQ==}
+  '@subcult/archive-viewer@0.4.9':
+    resolution: {integrity: sha512-yVEaYlYy9qFMPFkZeU6VCKPh5RZp4KDTuiOcgAE59kDgPslb5s8rfLNblFkvjG/+ZfUlTLMz5P7huzDJJDo8UQ==}
     peerDependencies:
       react: ^19.2.0
 
@@ -1716,7 +1716,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@subcult/archive-viewer@0.4.7(react@19.3.1)':
+  '@subcult/archive-viewer@0.4.9(react@19.3.1)':
     dependencies:
       react: 19.3.1
 
