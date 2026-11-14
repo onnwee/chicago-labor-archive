@@ -76,6 +76,8 @@ check, ESLint, Vitest and production build, and validates the Compose file.
   organizations, people and events.
 - `labels/review.json`: which proposed labels are accepted or rejected.
 - `deploy/archive-core.env`: the pinned engine image.
+- `deploy/core.Dockerfile`: labels the pinned engine image for automatic deploys
+  (see `docs/operations.md`).
 
 `deploy/compose.yml` reads these variables from a `.env` beside it:
 

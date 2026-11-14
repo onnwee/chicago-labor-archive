@@ -5,10 +5,22 @@ run-name: Deploy ${{ github.sha }}
 # OAuth client in the TS_OAUTH_* secrets), then uses this repository's deploy
 # key, which Almaz accepts only from tailnet addresses and only for the
 # chicago-labor-archive fleet-deploy receiver.
+#
+# When a push to main changes deploy/archive-core.env or deploy/core.Dockerfile
+# (or a manual run asks for it), the core job first deploys the pinned core
+# through the separate chicago-labor-archive-core receiver profile and its own
+# key. It stays off until the repository variable CORE_DEPLOY_ENABLED is 'true',
+# which the operator sets after registering that profile (docs/operations.md).
+# Other commits deploy only the web image.
 'on':
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_core:
+        description: Also deploy the pinned core (needs CORE_DEPLOY_ENABLED)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,11 +35,173 @@ env:
   TARGET: onnwee@100.77.128.80
   DEPLOY_REVISION: ${{ github.sha }}
   IMAGE: ghcr.io/subculture-collective/chicago-labor-archive-web
+  CORE_PROFILE: chicago-labor-archive-core
 
 jobs:
+  changes:
+    name: Decide whether the core pin changed
+    if: github.repository == 'subculture-collective/chicago-labor-archive' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      core: ${{ steps.core.outputs.core }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - id: core
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          DISPATCH_CORE: ${{ inputs.deploy_core }}
+          ENABLED: ${{ vars.CORE_DEPLOY_ENABLED }}
+        run: |
+          set -euo pipefail
+          core=false
+          if [ "$EVENT" = workflow_dispatch ]; then
+            if [ "$DISPATCH_CORE" = true ]; then core=true; fi
+          else
+            # Compare the whole pushed range; fall back to the parent when the
+            # previous head is unknown (new branch or rewritten history).
+            base=$(git rev-parse "$DEPLOY_REVISION^")
+            if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+              && git merge-base --is-ancestor "$BEFORE" "$DEPLOY_REVISION"; then base=$BEFORE; fi
+            if ! git diff --quiet "$base" "$DEPLOY_REVISION" -- deploy/archive-core.env deploy/core.Dockerfile; then core=true; fi
+          fi
+          if [ "$core" = true ] && [ "$ENABLED" != true ]; then
+            echo "::warning title=Core not deployed::The core pin changed, but CORE_DEPLOY_ENABLED is not 'true'. Deploy the core by hand (docs/operations.md)."
+            core=false
+          fi
+          echo "core=$core" >> "$GITHUB_OUTPUT"
+          echo "Deploy the core: $core"
+
+  core:
+    name: Deploy the pinned core image
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Pull the pinned core and check it against the pin
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEPLOY_REVISION"
+          python3 scripts/check_core_pin.py
+          pin=$(sed -n 's/^ARCHIVE_ENGINE_IMAGE=//p' deploy/archive-core.env)
+          version=$(python3 -c 'import json; print(json.load(open("deploy/core-release.json"))["version"])')
+          core_revision=$(python3 -c 'import json; print(json.load(open("deploy/core-release.json"))["source_revision"])')
+          # The registry serves archive-core anonymously; pulling by digest
+          # makes Docker verify the content against the pin.
+          docker pull --quiet "$pin"
+          docker image inspect --format '{{json .RepoDigests}}' "$pin" > "$RUNNER_TEMP/digests.json"
+          python3 - "$pin" "$RUNNER_TEMP/digests.json" <<'PY'
+          import json, sys
+          pin, digests = sys.argv[1], json.load(open(sys.argv[2]))
+          if pin not in digests:
+              print(f"::error title=Core digest differs from the pin::pulled {digests}, pinned {pin}")
+              sys.exit(1)
+          PY
+          labels=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}} {{index .Config.Labels "org.opencontainers.image.revision"}}' "$pin")
+          if [ "$labels" != "$version $core_revision" ]; then
+            echo "::error title=Core image differs from core-release.json::image reports $labels, release receipt $version $core_revision"; exit 1
+          fi
+          { echo "CORE_PIN=$pin"; echo "CORE_VERSION=$version"; echo "CORE_REVISION=$core_revision"; } >> "$GITHUB_ENV"
+      - name: Build the labelled core wrapper
+        run: |
+          set -euo pipefail
+          tag="fleet-deploy/$CORE_PROFILE/core:$DEPLOY_REVISION"
+          # An empty context: the wrapper cannot copy anything into the image.
+          context=$(mktemp -d)
+          DOCKER_BUILDKIT=1 docker build -f deploy/core.Dockerfile --pull=false \
+            --build-arg "CORE_IMAGE=$CORE_PIN" --build-arg "REVISION=$DEPLOY_REVISION" \
+            --build-arg "CORE_VERSION=$CORE_VERSION" --build-arg "CORE_REVISION=$CORE_REVISION" \
+            -t "$tag" "$context"
+          # Labels only: the wrapper's filesystem layers must be the pin's.
+          base_layers=$(docker image inspect --format '{{json .RootFS.Layers}}' "$CORE_PIN")
+          wrapper_layers=$(docker image inspect --format '{{json .RootFS.Layers}}' "$tag")
+          if [ "$base_layers" != "$wrapper_layers" ]; then
+            echo "::error title=Core wrapper adds layers::the wrapper's layers differ from $CORE_PIN"; exit 1
+          fi
+          docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}} {{index .Config.Labels "org.opencontainers.image.revision"}} {{index .Config.Labels "org.opencontainers.image.version"}}' "$tag"
+      - name: Join the tailnet
+        uses: tailscale/github-action@6cae46e2d796f265265cfcf628b72a32b4d7cade # v3.3.0
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-ci
+          version: 1.104.7
+          args: --accept-dns=false
+      - name: Prepare the core deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.HOMELAB_CORE_DEPLOY_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.HOMELAB_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/core-deploy"
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/core-deploy/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/core-deploy/known_hosts"
+      - name: Deploy the core and verify the live version
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEPLOY_REVISION"
+          d="$RUNNER_TEMP/core-deploy"
+          ssh_args=(-F /dev/null -i "$d/key" -o ControlPath=none -o ControlMaster=no -o BatchMode=yes -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=15 "$TARGET")
+          # The receiver prints only sanitized refusals; show them as annotations.
+          refused() { echo "::error title=Core $1 refused::$(tr '\n' ' ' < "$d/err")"; exit 1; }
+          ssh "${ssh_args[@]}" status 2> "$d/err" || refused status
+          # The receiver accepts only Gitea's current main. Kvant copies GitHub
+          # to Gitea every minute, so wait while the revision has not arrived.
+          for attempt in $(seq 1 20); do
+            # shellcheck disable=SC2029
+            if ssh "${ssh_args[@]}" "artifact $DEPLOY_REVISION core" > "$d/artifact.json" 2> "$d/err"; then break; fi
+            if grep -q "no longer the current main" "$d/err" && [ "$attempt" -lt 20 ]; then
+              echo "Gitea has not received $DEPLOY_REVISION yet; waiting 30 s ($attempt/20)"; sleep 30; continue
+            fi
+            refused artifact
+          done
+          # A retry reuses the image an earlier attempt sent: the receiver
+          # refuses a different image for a commit it already holds.
+          if [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["available"])' "$d/artifact.json")" = True ]; then
+            echo "The receiver already holds the core image for $DEPLOY_REVISION; reusing it"
+          else
+            # shellcheck disable=SC2029
+            docker save "fleet-deploy/$CORE_PROFILE/core:$DEPLOY_REVISION" | ssh "${ssh_args[@]}" "receive $DEPLOY_REVISION core" 2> "$d/err" || refused receive
+          fi
+          # Backup, migrate, activation, checks and any rollback happen on the
+          # host. A rollback or refusal exits non-zero and fails this job.
+          # shellcheck disable=SC2029
+          ssh "${ssh_args[@]}" "deploy $DEPLOY_REVISION" > "$d/deploy.json" 2> "$d/err" || refused deploy
+          status=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$d/deploy.json")
+          if [ "$status" != deployed ]; then echo "::error title=Core deploy not completed::receiver status $status"; exit 1; fi
+          curl --fail --silent --show-error --retry 4 --retry-all-errors --max-time 30 \
+            "https://cla.subcult.tv/api/version?deploy-check=$DEPLOY_REVISION" > "$d/version.json"
+          live=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["core_version"])' "$d/version.json")
+          if [ "$live" != "$CORE_VERSION" ]; then
+            echo "::error title=Live core version differs::cla.subcult.tv reports $live, pinned $CORE_VERSION"; exit 1
+          fi
+          printf 'cla.subcult.tv runs core %s from %s\n' "$live" "$DEPLOY_REVISION"
+      - name: Remove the core deploy key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/core-deploy"
+
   deploy:
     name: Build, publish and deploy the frontend image
-    if: github.repository == 'subculture-collective/chicago-labor-archive' && github.ref == 'refs/heads/main'
+    needs: [changes, core]
+    # Runs after a successful core deploy, or alone when the core is skipped.
+    if: >-
+      !cancelled() && github.repository == 'subculture-collective/chicago-labor-archive' && github.ref == 'refs/heads/main'
+      && needs.changes.result == 'success' && (needs.core.result == 'success' || needs.core.result == 'skipped')
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 25

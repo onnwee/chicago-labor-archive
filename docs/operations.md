@@ -64,11 +64,76 @@ independent copy. Do not delete or rewrite either copy.
   `~/.local/state/fleet-deploy/chicago-labor-archive/releases/`. `.env`'s
   `CHICAGO_WEB_IMAGE` keeps the bootstrap image: set it to the current image
   before running `$c up -d web` by hand.
-- Core: update `deploy/core-release.json` and `deploy/archive-core.env` in a
-  reviewed change, then on Almaz back up the database, run `operator migrate`
-  with the new image and `$c up -d core`.
+- Core: upgrade `deploy/core-release.json` and `deploy/archive-core.env` in a
+  reviewed change (the arkhiv release tooling opens these PRs). Once the
+  repository variable `CORE_DEPLOY_ENABLED` is `true`, merging it deploys the
+  core automatically; until then, deploy it by hand as described below.
 - Rollback: put the previous image in `.env` and `up -d` the service. Migrations
   are additive; a core rollback after a migration needs a compatible checkpoint.
+
+### Automatic core deploys
+
+When a push to `main` changes `deploy/archive-core.env` or
+`deploy/core.Dockerfile`, the `core` job in `.github/workflows/deploy.yml` runs
+before the web job. A manual run with `deploy_core` does the same. The job:
+
+1. pulls the pinned digest from `git.subcult.tv` (anonymous) and refuses an
+   image whose digest differs from the pin, or whose version and revision labels
+   differ from `deploy/core-release.json`;
+2. builds `deploy/core.Dockerfile` from that digest with an empty build context.
+   The wrapper adds only labels: source, revision (this repository's commit),
+   `org.opencontainers.image.version` (the core version) and
+   `org.subcult.archive-core.revision` (the core's own commit). CI refuses it if
+   its layers differ from the pin's;
+3. asks the receiver for `artifact REVISION core`, sends the image with
+   `receive REVISION core` unless the receiver already holds it, then runs
+   `deploy REVISION`. On Almaz the receiver runs the backup, `operator migrate`
+   with the new image, swaps `core`, runs the checks and restores the previous
+   image if they fail;
+4. fails with an annotation when the receiver refuses or rolls back, and
+   otherwise checks that `https://cla.subcult.tv/api/version` reports the pinned
+   `core_version`.
+
+The web job then deploys as before. Commits that do not touch those two files
+skip the core job and deploy only the web image. If a core run fails because a
+newer commit reached `main` first, the newer run does not see a pin change; run
+the workflow by hand on `main` with `deploy_core`.
+
+The core uses its own receiver profile and key, because `deploy REVISION`
+replaces every service in a profile and requires an image of each one for that
+revision. If `core` joined the web profile, every web commit would also replace
+the core container and run the migration again.
+
+Before setting `CORE_DEPLOY_ENABLED` to `true` (operator work, tracked on
+arkhiv#45):
+
+- Install receiver `d535f347` or later on Almaz.
+- Register profile `chicago-labor-archive-core` (the name is part of the image
+  tag CI sends): repository `subculture-collective/chicago-labor-archive`,
+  service `core` with its live container name, an Almaz-local database dump as
+  `pre_deploy_command` (`scripts/backup_database.sh` runs from Kvant and cannot
+  serve; the receiver allows 120 seconds),
+  `"migrate": {"service": "operator", "image_service": "core", "argv": ["migrate"]}`,
+  and checks `https://cla.subcult.tv/api/ready` plus `/api/version` with
+  `json_service: core` and
+  `json_labels: {"core_version": "org.opencontainers.image.version"}`. Do not
+  map `revision` to `org.opencontainers.image.revision`: that label holds this
+  repository's commit, not the core's. Set `ARKHIV_READER_ROLE=cla_public` on
+  the `operator` service in the live Compose file, as on the other sites, so
+  `migrate` grants new tables to the public role. The default privileges in
+  `deploy/public-role.sql` already cover tables the owner creates.
+- Add a separate restricted key for that profile to `authorized_keys`, and store
+  its private key as the `production` environment secret
+  `HOMELAB_CORE_DEPLOY_KEY`. `HOMELAB_KNOWN_HOSTS` is shared with the web job.
+- The receiver also runs the JSON check against the previous image during a
+  rollback. Core 0.4.7, which runs now, has the version label, but its
+  `/api/version` has no `core_version` (checked 2026-11-14), so a rollback to it
+  would be reported as `rollback-failed`. For the first upgrade, either move to
+  0.4.10 by hand first, or register the `/api/version` check only after that
+  deploy.
+
+To deploy the core by hand: back up the database, run `operator migrate` with
+the new image and `$c up -d core`.
 
 ## Text recognition (OCR)
 
