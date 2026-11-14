@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { checkEngine, parseBrand, type Brand, type EngineCapabilities } from './brand';
 import Archive from './Archive';
+import Publications from './Publications';
 import './styles.css';
 
 async function load<T>(url: string, signal: AbortSignal): Promise<T> {
@@ -23,5 +24,5 @@ export default function App({ configPath = '/brand/chicago-labor-archive/site.js
   }, [configPath]);
   if (error) return <main className="configuration"><h1>Archive unavailable</h1><p role="alert">{error}</p><button onClick={() => location.reload()}>Try again</button></main>;
   if (!brand) return <main><p role="status">Opening the archive…</p></main>;
-  return <Archive brand={brand} />;
+  return location.pathname === '/publications' ? <Publications brand={brand} /> : <Archive brand={brand} />;
 }

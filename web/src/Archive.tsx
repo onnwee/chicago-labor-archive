@@ -1,8 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { useCatalog, catalogRequest, catalogLabelsURL, representationPath, representationURL, sourceProvider, type CatalogCollection, type CatalogItem, type CatalogLabel, type CatalogRepresentation, type RepresentationTransport } from '@subcult/archive-viewer/catalog';
+import { useCatalog, catalogRequest, catalogLabelsURL, representationPath, representationURL, sourceProvider, type CatalogItem, type CatalogLabel, type CatalogRepresentation, type RepresentationTransport } from '@subcult/archive-viewer/catalog';
 import type { Brand } from './brand';
 import { CatalogShare } from './CatalogTools';
 import ChicagoHeader from './chicago/Header';
+import { PUBLICATIONS } from './publications';
 import { invertedRange, readState, writeState, type ArchiveState } from './urlState';
 const DocumentView = lazy(() => import('./DocumentView'));
 
@@ -11,22 +12,33 @@ const KIND_NAMES: Record<string, string> = { topic: 'Topics', place: 'Places', o
 const number = new Intl.NumberFormat('en-US');
 type Selection = { item: CatalogItem; representation: CatalogRepresentation };
 
-function SelectedItem({ selection, collection, collectionTitle, onClose, focus, onFocus, readerPage, onReaderPage }: {
-  selection: Selection; collection: string; collectionTitle: string; onClose: () => void; focus: boolean; onFocus: () => void;
+type PrintIndex = { pages?: number; text_status?: string };
+const TEXT_STATUS: Record<string, string> = {
+  'page-text': 'Page text searchable',
+  'document-text': 'Document text searchable; page mapping unavailable',
+};
+
+// The document view: the reader first, its record beside it on wide screens and under it on narrow ones.
+function SelectedItem({ selection, collection, onClose, readerPage, onReaderPage }: {
+  selection: Selection; collection: string; onClose: () => void;
   readerPage?: number; onReaderPage: (page: number) => void;
 }) {
   const { item, representation } = selection;
   const path = representationPath(item, representation);
   const [asset, setAsset] = useState<RepresentationTransport>();
   const [download, setDownload] = useState<string>();
+  const [index, setIndex] = useState<PrintIndex>({});
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const section = useRef<HTMLElement>(null);
-  useEffect(() => { section.current?.scrollIntoView({ block: 'start' }); section.current?.focus(); }, []);
+  useEffect(() => { window.scrollTo({ top: 0 }); section.current?.focus({ preventScroll: true }); }, []);
   useEffect(() => {
     const controller = new AbortController();
     void catalogRequest<RepresentationTransport>(`${path}/resolve?${new URLSearchParams({ collection, action: 'download' })}`, controller.signal)
       .then(value => { if (!controller.signal.aborted) setDownload(representationURL(value, 'download')); })
+      .catch(() => undefined);
+    void catalogRequest<PrintIndex>(`${path}/print?${new URLSearchParams({ collection })}`, controller.signal)
+      .then(value => { if (!controller.signal.aborted) setIndex(value); })
       .catch(() => undefined);
     return () => controller.abort();
   }, [path, collection]);
@@ -43,18 +55,33 @@ function SelectedItem({ selection, collection, collectionTitle, onClose, focus, 
   }, [path, collection, representation, attempt]);
   const share = writeState(location.href, { query: '', creator: '', dateFrom: '', dateTo: '', page: 1, item: item.id, representation: representation.id });
   const provider = asset ? sourceProvider(asset) : '';
-  return <section ref={section} tabIndex={-1} className="catalog-selection" aria-label="Selected document">
-    <button onClick={onClose}>Close document</button><button aria-pressed={focus} onClick={onFocus}>{focus ? 'Exit focus mode' : 'Focus mode'}</button>
-    <p className="eyebrow">Print · {collectionTitle}</p><h2>{item.title}</h2>
-    <CatalogShare url={share} title={item.title} />
-    <p>{[item.creator, item.date].filter(Boolean).join(' · ')}</p>{item.description && <p>{item.description}</p>}
-    {item.labels && item.labels.length > 0 && <ul className="document-labels" aria-label="Topics and tags">{item.labels.map(label => <li key={label.id}><span className="visually-hidden">{label.kind}: </span>{label.label}</li>)}</ul>}
-    <dl>{representation.extension.print && <><dt>Pages</dt><dd>{representation.extension.print.pages || 'Unknown'}</dd><dt>Edition</dt><dd>{representation.extension.print.variant || 'Unknown'}</dd></>}<dt>File</dt><dd>{representation.file}</dd></dl>
-    {!error && !asset && <p role="status">Checking access…</p>}
-    {error && <p role="alert">{error} <button onClick={() => { setError(''); setAsset(undefined); setAttempt(value => value + 1); }}>Try again</button></p>}
-    {asset && <Suspense fallback={<p role="status">Opening PDF reader…</p>}><DocumentView url={asset.url} title={item.title} path={path} collection={collection} initialPage={readerPage} onPageChange={onReaderPage} /></Suspense>}
-    {download && <p><a href={download} download={representation.file}>Download original PDF</a></p>}
-    {asset && <p><a href={asset.source_url} target="_blank" rel="noreferrer">{provider === 'archive.org' ? 'Source item at Internet Archive' : `Source page at ${provider}`}</a></p>}
+  const pages = index.pages || representation.extension.print?.pages;
+  const searchable = index.text_status === 'page-text' || index.text_status === 'document-text';
+  return <section ref={section} tabIndex={-1} className="catalog-selection document" aria-labelledby="document-title">
+    <nav className="document-crumbs" aria-label="Breadcrumb"><button className="link-button" onClick={onClose}><span aria-hidden="true">← </span>Back to the catalog</button>
+      {item.creator && <> · <a href={`/?${new URLSearchParams({ creator: item.creator })}#catalog`}>{item.creator}</a></>}</nav>
+    <div className="document-body">
+      <div className="document-main">
+        <header className="document-header"><h1 id="document-title">{item.title}</h1>
+          <p className="byline">{item.creator && <span>{item.creator}</span>}<span>{item.date || 'Date unknown'}</span>{pages ? <span>{pages} pages</span> : null}</p></header>
+        {!error && !asset && <p role="status">Checking access…</p>}
+        {error && <p role="alert">{error} <button onClick={() => { setError(''); setAsset(undefined); setAttempt(value => value + 1); }}>Try again</button></p>}
+        {asset && <div className="document-reader"><Suspense fallback={<p role="status">Opening PDF reader…</p>}><DocumentView url={asset.url} title={item.title} path={path} collection={collection} searchable={searchable} initialPage={readerPage} onPageChange={onReaderPage} /></Suspense></div>}
+      </div>
+      <aside className="document-details" aria-label="About this document">
+        <div className="document-actions">
+          {download && <a className="button download" href={download} download={representation.file}>Download PDF</a>}
+          <CatalogShare url={share} title={item.title} />
+        </div>
+        {item.description && <p className="document-description">{item.description}</p>}
+        {item.labels && item.labels.length > 0 && <section><h2>Topics and tags</h2><ul className="document-labels">{item.labels.map(label => <li key={label.id}><span className="visually-hidden">{label.kind}: </span>{label.label}</li>)}</ul></section>}
+        <section><h2>Source</h2>
+          {asset && <p><a href={asset.source_url} target="_blank" rel="noreferrer">{provider === 'archive.org' ? 'Source item at Internet Archive' : `Source page at ${provider}`}</a></p>}
+          <dl>{representation.extension.print && <><dt>Edition</dt><dd>{representation.extension.print.variant || 'Unknown'}</dd></>}<dt>File</dt><dd>{representation.file}</dd>
+            <dt>Text</dt><dd>{TEXT_STATUS[index.text_status || ''] || (index.text_status ? 'Text search unavailable' : 'Checking…')}</dd></dl>
+        </section>
+      </aside>
+    </div>
   </section>;
 }
 
@@ -62,8 +89,6 @@ export default function Archive({ brand }: { brand: Brand }) {
   const collection = brand.collection;
   const [state, setState] = useState<ArchiveState>(() => readState(typeof window === 'undefined' ? '' : location.search));
   const [selection, setSelection] = useState<Selection>();
-  const [collectionTitle, setCollectionTitle] = useState(brand.title);
-  const [focus, setFocus] = useState(false);
   const [jump, setJump] = useState('');
   const [labels, setLabels] = useState<CatalogLabel[]>([]);
   const [opens, setOpens] = useState(0);
@@ -87,19 +112,14 @@ export default function Archive({ brand }: { brand: Brand }) {
     window.addEventListener('popstate', restore);
     return () => window.removeEventListener('popstate', restore);
   }, []);
-  useEffect(() => {
-    const esc = (event: KeyboardEvent) => { if (event.key === 'Escape') setFocus(false); };
-    window.addEventListener('keydown', esc);
-    return () => window.removeEventListener('keydown', esc);
-  }, []);
   useEffect(() => { document.title = `${brand.title} — ${brand.headline}`; }, [brand]);
+  // A link such as /?creator=…#catalog lands on the catalog once its first page has rendered.
+  const arrived = useRef(false);
   useEffect(() => {
-    const controller = new AbortController();
-    void catalogRequest<CatalogCollection[]>('/api/catalog/v1/collections', controller.signal)
-      .then(value => { const match = value.find(c => c.id === collection); if (!controller.signal.aborted && match && match.title !== match.id) setCollectionTitle(match.title); })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [collection]);
+    if (!catalog.page || arrived.current) return;
+    arrived.current = true;
+    if (location.hash === '#catalog' && !state.item) document.getElementById('catalog')?.scrollIntoView({ block: 'start' });
+  }, [catalog.page, state.item]);
   useEffect(() => {
     const controller = new AbortController();
     void catalogRequest<CatalogLabel[]>(catalogLabelsURL(collection), controller.signal)
@@ -109,7 +129,7 @@ export default function Archive({ brand }: { brand: Brand }) {
   }, [collection]);
   // Open the document named in the URL, including after reload or back/forward.
   useEffect(() => {
-    if (!state.item || !state.representation) { setSelection(undefined); setFocus(false); return; }
+    if (!state.item || !state.representation) { setSelection(undefined); return; }
     if (selection?.item.id === state.item && selection.representation.id === state.representation) return;
     const controller = new AbortController();
     void catalogRequest<CatalogItem>(`/api/catalog/v1/items/${encodeURIComponent(state.item)}?${new URLSearchParams({ collection })}`, controller.signal).then(item => {
@@ -126,7 +146,7 @@ export default function Archive({ brand }: { brand: Brand }) {
     update({ item: item.id, representation: representation.id, readerPage: page }, true);
   }
   function close() {
-    setSelection(undefined); setFocus(false);
+    setSelection(undefined);
     update({ item: undefined, representation: undefined, readerPage: undefined }, true);
     // Return keyboard focus to the control that opened the document.
     requestAnimationFrame(() => {
@@ -157,7 +177,7 @@ export default function Archive({ brand }: { brand: Brand }) {
   const readButtons = (item: CatalogItem) => item.representations.filter(rep => rep.media === 'print' && rep.collections.includes(collection)).map(rep =>
     <button key={rep.id} onClick={event => open(item, rep, event.currentTarget)}>Read{item.representations.length > 1 ? ` · ${rep.extension.print?.variant || rep.file}` : ''}<span className="visually-hidden">: {item.title}</span></button>);
 
-  return <main className={`mixed-archive facsimile-archive${focus && selection ? ' reading-focus' : ''}`}><a className="skip-link" href="#catalog">Skip to the catalog</a>
+  return <main className={`mixed-archive facsimile-archive${selection ? ' document-open' : ''}`}><a className="skip-link" href="#catalog">Skip to the catalog</a>
     <ChicagoHeader brand={brand} />
     <section className="catalog-intro"><div><p className="eyebrow">{brand.kicker}</p><h1>{brand.headline}</h1><p>{brand.description}</p></div>
       <aside aria-label="Geographic scope"><p>Chicago, its suburbs <br />and the Calumet region.</p><a href="#catalog">Find an issue below</a></aside></section>
@@ -167,7 +187,7 @@ export default function Archive({ brand }: { brand: Brand }) {
         <label>Search titles and descriptions<input type="search" value={state.query} maxLength={200} onChange={event => filter({ query: event.target.value })} /></label>
         <label>Search document text<input type="search" value={state.text || ''} maxLength={200} onChange={event => filter({ text: event.target.value || undefined })} /></label>
         {labels.length > 0 && <label>Topic or tag<select value={state.label || ''} onChange={event => filter({ label: event.target.value || undefined })}><option value="">Any</option>{grouped.map(([kind, group]) => <optgroup key={kind} label={KIND_NAMES[kind] || kind}>{group.map(label => <option key={label.id} value={label.id}>{label.label} ({number.format(label.items)})</option>)}</optgroup>)}</select></label>}
-        <label>Publication<input value={state.creator} maxLength={200} onChange={event => filter({ creator: event.target.value })} /></label>
+        <label>Publication<select value={state.creator} onChange={event => filter({ creator: event.target.value })}><option value="">Any</option>{PUBLICATIONS.map(publication => <option key={publication.name} value={publication.name}>{publication.name}</option>)}{state.creator && !PUBLICATIONS.some(publication => publication.name === state.creator) && <option value={state.creator}>{state.creator}</option>}</select></label>
         <label>Original date from<input type="date" value={state.dateFrom} onChange={event => filter({ dateFrom: event.target.value })} /></label>
         <label>Original date to<input type="date" value={state.dateTo} onChange={event => filter({ dateTo: event.target.value })} /></label></div>
       <p className="catalog-date-note">Date filters match complete original dates. Issues with a partial or unknown date appear only when both date fields are empty.</p>
@@ -180,7 +200,7 @@ export default function Archive({ brand }: { brand: Brand }) {
             {pages > 2 && <form onSubmit={submitJump}><label>Go to page<input type="number" inputMode="numeric" min={1} max={pages} value={jump} onChange={event => setJump(event.target.value)} /></label><button type="submit">Go</button></form>}</nav></>}
       </>}
     </section>
-    {selection && <SelectedItem key={`${selection.item.id}:${selection.representation.id}:${opens}`} selection={selection} collection={collection} collectionTitle={collectionTitle} onClose={close} focus={focus} onFocus={() => setFocus(!focus)} readerPage={state.readerPage} onReaderPage={page => update({ readerPage: page })} />}
+    {selection && <SelectedItem key={`${selection.item.id}:${selection.representation.id}:${opens}`} selection={selection} collection={collection} onClose={close} readerPage={state.readerPage} onReaderPage={page => update({ readerPage: page })} />}
     <section id="archive-about" className="archive-about"><h2>A regional record, in its own words.</h2><p>Periodicals and documents published in Chicago, its suburbs and the Calumet region in northwest Indiana. Original dates and source information stay with each document. Catalog search covers titles and descriptions; text search is available inside a document when its text has been indexed.</p></section>
     <footer><span>{brand.title}</span><span>Source metadata retained · Access reviewed per collection</span><a href="https://subcult.tv/support">Support SUBCULT’s archive software</a></footer>
   </main>;

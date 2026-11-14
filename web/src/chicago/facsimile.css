@@ -91,7 +91,82 @@
 .archive-about h2 { font:700 32px/1.05 'Barlow Condensed',Arial,sans-serif; max-width:16ch; margin:0; }
 .archive-about p { max-width:70ch; margin:0; }
 .facsimile-archive footer { color:var(--muted); flex-wrap:wrap; gap:16px; font-size:.75rem; }
-.facsimile-archive.reading-focus > .archive-about { display:none; }
+
+/* Document view: the issue first, its record beside it. The catalog stays mounted under it so closing returns to the same place. */
+.facsimile-archive.document-open > .catalog-intro,.facsimile-archive.document-open > #catalog,.facsimile-archive.document-open > .archive-about { display:none; }
+.facsimile-archive .catalog-selection.document { border-top:0; margin-top:0; padding:12px 0 40px; outline:none; }
+.document-crumbs { margin:0 0 6px; font-size:.875rem; color:var(--muted); }
+.facsimile-archive .link-button { min-height:0; padding:0; border:0; background:none; color:var(--accent); font-weight:400; text-decoration:underline; text-underline-offset:.25em; }
+.facsimile-archive .link-button:hover:not(:disabled):not([aria-pressed='true']) { background:none; text-decoration-thickness:2px; }
+.facsimile-archive .document-header h1 { font:700 clamp(30px,3.4vw,46px)/1 'Barlow Condensed',Arial,sans-serif; margin:0; overflow-wrap:anywhere; }
+/* Separators between byline items; the clip hides the one that would start a wrapped line. */
+.byline { display:flex; flex-wrap:wrap; gap:2px 0; margin:6px 0 0 -13px; clip-path:inset(0 0 0 13px); font-size:.875rem; color:var(--muted); }
+.byline span { padding:0 12px; border-left:1px solid var(--border); }
+.byline span:first-child { color:var(--ink); font-weight:700; }
+.document-body { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:32px; align-items:start; }
+.document-main { min-width:0; }
+/* The site-wide header rule styles the masthead; the document's own header is a plain block. */
+.facsimile-archive .document-main > .document-header { display:block; min-height:0; margin-bottom:14px; border:0; }
+.document-details { display:grid; gap:24px; font-size:.875rem; position:sticky; top:16px; min-width:0; }
+.facsimile-archive .document-details h2 { font:700 .75rem/1.2 'Public Sans',Arial,sans-serif; text-transform:uppercase; letter-spacing:.08em; margin:0 0 8px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+.document-details p,.document-details dl { margin:0; }
+.document-details p + dl { margin-top:12px; }
+/* A shorter masthead while reading leaves the height to the page. */
+.facsimile-archive.document-open .chicago-header { padding-block:12px; }
+.document-details dt { font-weight:700; }
+.document-details dd { margin:0 0 8px; overflow-wrap:anywhere; }
+.document-description { color:var(--muted); }
+.document-actions { display:grid; gap:12px; }
+.facsimile-archive .document-actions .download { display:flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:8px 16px; background:var(--accent); color:var(--background); font-weight:700; text-decoration:none; }
+.facsimile-archive .document-actions .download:hover { text-decoration:underline; }
+.document-actions .download::before { content:''; width:16px; height:16px; flex:none; background:currentColor; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5'%3E%3Cpath d='M12 3v12m-5-5 5 5 5-5M4 20h16'/%3E%3C/svg%3E") center / contain no-repeat; }
+.document-actions .catalog-share button { padding:8px 12px; }
+@media(min-width:901px) {
+  .document-main { padding-right:32px; border-right:1px solid var(--border); }
+}
+
+/* Reader: the page between its arrows, the toolbar under it. */
+.document-reader .reader { position:relative; display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px 16px; }
+.document-reader .reader > * { flex:1 1 100%; min-width:0; }
+.document-reader .reader > .reader-controls { order:1; justify-content:center; gap:8px 16px; margin:0; }
+/* Zoomed in, the toolbar stays in reach while the page scrolls. */
+.document-reader .reader[data-fit='width']:not([data-fullscreen]) > .reader-controls { position:sticky; bottom:0; z-index:2; padding-block:6px; background:var(--background); }
+.document-reader .reader > .reader-panel { order:2; max-width:760px; padding:12px 16px; font-size:.875rem; background:var(--surface); border:1px solid var(--border); }
+.reader-panel-text h3 { font:700 .75rem/1.2 'Public Sans',Arial,sans-serif; text-transform:uppercase; letter-spacing:.08em; margin:12px 0 6px; }
+.reader-panel-text p { margin:0; max-height:35dvh; overflow:auto; white-space:pre-wrap; }
+.document-reader .reader > .reader-loading { position:absolute; top:12px; right:14px; margin:0; padding:4px 8px; font-size:.8125rem; background:var(--background); border:1px solid var(--border); }
+.reader-controls label,.reader .search label { flex-direction:row; align-items:center; gap:6px; font-size:.875rem; }
+.reader-pages { display:inline-flex; align-items:center; gap:6px; }
+.reader-count { font-size:.875rem; white-space:nowrap; }
+.facsimile-archive .reader-controls input { width:3.6em; text-align:center; font-variant-numeric:tabular-nums; appearance:textfield; }
+.reader-controls input::-webkit-inner-spin-button,.reader-controls input::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+.facsimile-archive .reader-fullscreen,.facsimile-archive .reader-tool { display:inline-flex; align-items:center; gap:8px; padding:0 12px; }
+.facsimile-archive .reader-fullscreen[aria-pressed='true'],
+.facsimile-archive .reader-tool[aria-expanded='true'] { background:var(--ink); border-color:var(--ink); color:var(--background); }
+.reader-title { font:700 1rem/1.2 'Public Sans',Arial,sans-serif; margin-right:auto; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.document-reader .reader .search { display:flex; flex-direction:row; flex-wrap:wrap; gap:8px; align-items:end; margin:8px 0; }
+.reader .search label { flex:1; }
+.reader .search input { flex:1; width:0; min-width:80px; }
+.reader-page { container-type:inline-size; position:relative; display:flex; justify-content:center; align-items:center; gap:12px; --arrows:120px; }
+.facsimile-archive .reader-page .canvas-wrap { flex:0 1 auto; min-width:0; max-width:100%; padding:0; background:none; }
+/* Whole page: the page box takes the screen height left under the header (the reader measures
+   --print-page-top) less the toolbar, and no more than the page needs at full width. */
+.facsimile-archive .reader[data-fit='page'] .canvas-wrap { height:min(max(240px,calc(100dvh - var(--print-page-top,200px) - 72px)),calc((100cqw - var(--arrows)) * var(--print-page-ratio,1.4))); display:flex; align-items:center; justify-content:center; overflow:hidden; touch-action:pan-y pinch-zoom; }
+.canvas-wrap canvas { background:#fff; box-shadow:0 1px 4px #0004; }
+.facsimile-archive .page-arrow { flex:none; width:48px; height:72px; min-height:0; padding:0; display:grid; place-items:center; background:var(--ink); border:0; color:var(--background); }
+.facsimile-archive .page-arrow:hover:not(:disabled):not([aria-pressed='true']) { background:var(--accent); }
+.facsimile-archive .page-arrow:disabled { opacity:1; background:transparent; color:var(--border); }
+.reader[data-fit='width'] .page-arrow { position:sticky; top:calc(50dvh - 36px); align-self:flex-start; }
+/* Full screen: the page, its arrows and a title bar on a dark ground in either theme. */
+.document-reader .reader[data-fullscreen] { --background:#181b1d; --surface:#2b3033; --ink:#f3f3ed; --muted:#bec5c7; --border:#8b959a;
+  position:fixed; inset:0; z-index:100; margin:0; display:flex; flex-direction:column; flex-wrap:nowrap; align-items:stretch; gap:12px; padding:12px 16px; background:var(--background); color:var(--ink); }
+.document-reader .reader[data-fullscreen] > * { flex:none; }
+.document-reader .reader[data-fullscreen] > .reader-page { flex:1 1 0; min-height:0; }
+.document-reader .reader[data-fullscreen] > .reader-controls { justify-content:flex-end; }
+.document-reader .reader[data-fullscreen] > .reader-panel { position:absolute; bottom:72px; right:16px; z-index:2; width:min(440px,calc(100% - 32px)); max-height:60dvh; overflow:auto; }
+.facsimile-archive .reader[data-fullscreen][data-fit='width'] .canvas-wrap { height:100%; overflow:auto; }
+.reader[data-fullscreen][data-fit='width'] .page-arrow { position:static; align-self:center; }
+.facsimile-archive .reader[data-fit='page'][data-fullscreen] .canvas-wrap { height:min(100%,calc((100cqw - var(--arrows)) * var(--print-page-ratio,1.4))); }
 
 @media(max-width:900px) {
   .facsimile-archive .catalog-filters { grid-template-columns:1fr 1fr; }
@@ -120,6 +195,46 @@
 @media(max-width:420px) {
   .chicago-header .chicago-mark { width:64px; }
   .chicago-header .chicago-name { font-size:28px; }
+  .chicago-header nav { gap:8px 16px; font-size:.8125rem; }
   .facsimile-archive .catalog-filters label:nth-child(-n+2) { grid-column:1/-1; }
   .facsimile-archive .catalog-filters { gap:16px 8px; }
 }
+@media(max-width:900px) {
+  .document-body { grid-template-columns:minmax(0,1fr); gap:24px; }
+  .document-details { position:static; padding-top:24px; border-top:2px solid var(--ink); }
+}
+@media(max-width:640px) {
+  /* The reader runs edge to edge; the arrows get narrow gutters beside the page so nothing covers
+     the scan, and a swipe on the page also turns it. */
+  .document-reader .reader { margin-inline:calc(-1 * clamp(16px,4vw,64px)); }
+  .document-reader .reader > .reader-controls,.document-reader .reader > .reader-panel { margin-inline:clamp(16px,4vw,64px); }
+  .reader-page { gap:4px; --arrows:96px; }
+  .facsimile-archive .page-arrow { width:44px; height:64px; }
+  .page-arrow svg { width:22px; height:22px; }
+  /* One toolbar row: icons carry full screen and search; their names stay for screen readers. */
+  .reader-fullscreen-label,.reader-tool-label,.reader-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .facsimile-archive .reader-fullscreen,.facsimile-archive .reader-tool { width:44px; padding:0; justify-content:center; }
+  /* Phones have no Escape key, so the way out of full screen says so. */
+  .facsimile-archive .reader-fullscreen[aria-pressed='true'] { width:auto; padding:0 12px; }
+  .reader-fullscreen[aria-pressed='true'] .reader-fullscreen-label { position:static; width:auto; height:auto; clip-path:none; }
+  .reader-title { display:none; }
+  .reader-controls { gap:8px 10px; }
+  .facsimile-archive .reader-controls input { width:3em; }
+  .document-reader .reader[data-fullscreen] { padding:max(12px,env(safe-area-inset-top)) 0 max(12px,env(safe-area-inset-bottom)); }
+  .document-reader .reader[data-fullscreen] > .reader-controls { justify-content:center; }
+  .byline { margin-left:-9px; clip-path:inset(0 0 0 9px); }
+  .byline span { padding:0 8px; }
+}
+
+/* Publications: one card per newspaper or magazine, its latest cover above its name. */
+.facsimile-archive .publications-intro { display:block; padding-block:40px 24px; }
+.publication-list { list-style:none; margin:0; padding:24px 0 48px; border-top:2px solid var(--ink); display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr)); gap:32px 24px; }
+.publication-list li { min-width:0; }
+.publication-list a { display:grid; gap:12px; color:var(--ink); text-decoration:none; }
+.publication-cover { display:block; aspect-ratio:3/4; background:var(--surface); border:1px solid var(--border); overflow:hidden; }
+.publication-cover img { display:block; width:100%; height:100%; object-fit:cover; object-position:top; }
+.publication-name { font:700 26px/1.05 'Barlow Condensed',Arial,sans-serif; overflow-wrap:anywhere; }
+.publication-list a:hover .publication-name { color:var(--accent); text-decoration:underline; text-decoration-thickness:2px; }
+.publication-facts { display:flex; flex-wrap:wrap; gap:4px 12px; margin:6px 0 0; font-size:.875rem; color:var(--muted); }
+.chicago-header nav a[aria-current='page'] { font-weight:700; text-decoration-thickness:2px; }
+

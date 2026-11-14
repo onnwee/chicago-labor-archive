@@ -17,9 +17,15 @@ a pinned container image and the `@subcult/archive-viewer` package.
 
 - Catalog table with paging and a jump-to-page control.
 - Search by title and description, or by document text with matching passages.
-- Filters for publication, original date range, and topic or tag.
-- Document view with page count, edition details, accepted topic and tag labels
-  and a PDF reader (PDF.js), plus a focus mode for reading.
+- Filters for publication (a list of the published titles), original date
+  range, and topic or tag.
+- A Publications page (`/publications`) listing each title with its years,
+  issue count and latest cover, linking to its issues in the catalog. The list
+  lives in `web/src/publications.ts`; update it with the import's titles.
+- Document view that opens on the PDF reader (PDF.js): the whole page in view,
+  arrows beside it (also the arrow keys and a swipe), full screen, and one
+  "Search & text" panel. Page count, edition, text status, labels and source
+  sit beside the reader on wide screens and below it on phones.
 - Share a document link, including a Bluesky compose link.
 - Appearance settings: system, light or dark mode and a custom accent color.
 
