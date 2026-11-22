@@ -26,9 +26,9 @@
   "schema_strategy": "checksum-locked-additive-migrations",
   "compatibility_window": "current and previous reviewed release",
   "rollout": "reviewed-per-consumer",
-  "version": "0.4.12",
-  "engine_digest": "git.subcult.tv/subculture-collective/archive-core@sha256:70e8df33e4e140c96548f11f1f2fe5cd521f7772415635bcca419f1289f8a5ec",
-  "source_revision": "22ecc3de96b102b0c7de2ecefc1ffb8a9a9c28aa",
+  "version": "0.4.13",
+  "engine_digest": "git.subcult.tv/subculture-collective/archive-core@sha256:f081a32ad234c2bd6cf3ddaf49ac7d5e4427af5bc5fb7322d8afdee321fece4a",
+  "source_revision": "1580e6e2d2815a89d00e88145e9289dee11359c3",
   "optional_migrations": {
     "community/0001_personal_chat.sql": "718cc0d07c225d3743c2890bded533bf82fb4866a23b94932faf88c56a619c32",
     "community/0002_media_rooms.sql": "1816b036ed8fdd9fa2c6e5a608b836eabfaea9677e57e33df351e7ab708f7990"
@@ -58,6 +58,7 @@
     "0022_source_popularity.sql": "9ab04bbd78df0fecccfb7d509403a60d1931a03bc805f57659a7f4a9938f98ae",
     "0023_catalog_view_extract_once.sql": "c5b1f9fdabeb652c238888e42c61ceeb130a5b52ebe6be3e9629e0ac548a3c4f",
     "0024_automatic_public_access.sql": "702ad1b87101f77040aba3eddb69362f3803aeda41cf029a1ff7c374dcdcc9a8",
-    "0025_series_labels.sql": "6c936ad75969d7dc3b9542910f271a7e26bd3e32a6eba5fd7e4eea2a3b119f50"
+    "0025_series_labels.sql": "6c936ad75969d7dc3b9542910f271a7e26bd3e32a6eba5fd7e4eea2a3b119f50",
+    "0026_collection_source_catalog.sql": "864eb45b2338ae7612fee175f57498c397679b126ce741f33005713e34ed8e6d"
   }
 }
